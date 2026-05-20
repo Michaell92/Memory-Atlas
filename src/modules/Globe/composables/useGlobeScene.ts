@@ -9,6 +9,7 @@ import {
     Scene,
     SphereGeometry,
     SRGBColorSpace,
+    Vector3,
     WebGLRenderer,
 } from 'three';
 import Stats from 'three/addons/libs/stats.module.js';
@@ -17,6 +18,7 @@ import gsap from 'gsap';
 import { onBeforeUnmount, onMounted, shallowRef, type Ref } from 'vue';
 
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
+import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
 import type { GlobeSceneHandle, GlobeSceneOptions } from '@/modules/Globe/types/globe.types';
@@ -146,6 +148,20 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         const ambientLight = new AmbientLight(0x4a5680, 0.35);
         scene.add(ambientLight);
 
+        // ── Atmosphere (Fresnel rim glow + terminator highlight) ─────────
+        // Shares the sun direction with the PointLight above so the day side
+        // glows hot blue-white and the night side keeps a faint cyan whisper.
+        const atmosphere = createAtmosphere({
+            planetRadius: radius,
+            scale: 1.04,
+            color: '#5aa9ff',
+            nightColor: '#0a1a3a',
+            fresnelPower: 6.0,
+            intensity: 1.2,
+            sunDirection: new Vector3(5, 3, 5).normalize(),
+        });
+        scene.add(atmosphere.object);
+
         // ── Starfield ─────────────────────────────────────────────────────
         const starfield = createStarfield({
             uniformStarCount: 6000,
@@ -224,6 +240,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 controller.dispose();
                 starfield.dispose();
                 cosmicPhenomena.dispose();
+                atmosphere.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();
                 globeGeometry.dispose();

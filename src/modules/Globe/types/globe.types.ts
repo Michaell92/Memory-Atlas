@@ -97,3 +97,29 @@ export interface CosmicPhenomenaHandle {
     /** Release GPU resources. Idempotent. */
     dispose: () => void;
 }
+
+export interface AtmosphereOptions {
+    /** Radius of the planet the atmosphere wraps. Default 1. */
+    planetRadius?: number;
+    /** Shell radius as a multiple of the planet radius. Default 1.15. */
+    scale?: number;
+    /** Day-side rim color (CSS string or Three Color-compatible). Default '#5aa9ff'. */
+    color?: string;
+    /** Night-side whisper color, very dim. Default '#0a2540'. */
+    nightColor?: string;
+    /** Fresnel falloff exponent — higher = thinner rim. Default 3.2. */
+    fresnelPower?: number;
+    /** Overall multiplier on rim brightness. Default 1.4. */
+    intensity?: number;
+    /** World-space direction the sun is coming from. Default matches the scene sun. */
+    sunDirection?: Vector3;
+}
+
+export interface AtmosphereHandle {
+    /** The Mesh to add to your scene. */
+    object: Mesh;
+    /** Update the lighting direction if the sun moves (e.g. day/night cycles). */
+    setSunDirection: (direction: Vector3) => void;
+    /** Release GPU resources. Idempotent. */
+    dispose: () => void;
+}
