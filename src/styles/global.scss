@@ -1,0 +1,53 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+// ── Reset ─────────────────────────────────────────────────────────────
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+html {
+  font-size: 16px; // 1rem = 16px
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: $font-body;
+  font-size: $font-size-base;
+  color: $color-text;
+  background: $color-void;
+  overflow: hidden; // globe stage owns the viewport
+}
+
+a {
+  color: $color-aurora;
+  text-decoration: none;
+
+  &:hover {
+    @include text-glow($color-aurora);
+  }
+}
+
+canvas {
+  display: block;
+}
+
+// Disable selection — feels more app-like, less document-like
+body,
+canvas {
+  user-select: none;
+  -webkit-user-select: none;
+}

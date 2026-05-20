@@ -1,0 +1,64 @@
+// Memory Atlas — Design Tokens
+// Cinematic, deep-space palette. Memories glow against the void.
+
+// ── Colors: void & space ──────────────────────────────────────────────
+$color-void:           #02030a;     // deepest background
+$color-deep-space:     #060914;     // primary bg
+$color-nebula:         #0b1230;     // gradient mid
+$color-cosmic-dust:    #1a2050;     // gradient highlight
+
+// ── Colors: atmosphere & glow ─────────────────────────────────────────
+$color-atmosphere:     #4ab3ff;     // earth rim glow
+$color-aurora:         #7df9ff;     // accent cyan
+$color-memory:         #ffd27a;     // visited-marker warm glow
+$color-locked:         #3a4060;     // unvisited / muted
+
+// ── Colors: text ──────────────────────────────────────────────────────
+$color-text:           #e9ecff;
+$color-text-muted:     #8a91b4;
+$color-text-dim:       #555a78;
+
+// ── Typography ────────────────────────────────────────────────────────
+// Use the platform UI font stack — feels native, costs zero bytes.
+$font-display:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+$font-body:     system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+$font-size-xs:   0.75rem;   // 12px
+$font-size-sm:   0.875rem;  // 14px
+$font-size-base: 1rem;      // 16px
+$font-size-lg:   1.25rem;   // 20px
+$font-size-xl:   1.75rem;   // 28px
+$font-size-2xl:  2.5rem;    // 40px
+
+// ── Spacing ──────────────────────────────────────────────────────────
+$space-xs:  0.25rem;
+$space-sm:  0.5rem;
+$space-md:  1rem;
+$space-lg:  1.5rem;
+$space-xl:  2.5rem;
+$space-2xl: 4rem;
+
+// ── Radii ─────────────────────────────────────────────────────────────
+$radius-sm: 0.25rem;
+$radius-md: 0.5rem;
+$radius-lg: 1rem;
+$radius-pill: 999rem;
+
+// ── Z-index layers ────────────────────────────────────────────────────
+$z-canvas:   0;
+$z-overlay:  10;
+$z-ui:       20;
+$z-modal:    30;
+$z-toast:    40;
+
+// ── Motion ────────────────────────────────────────────────────────────
+$ease-cinematic: cubic-bezier(0.22, 1, 0.36, 1);
+$duration-fast:  180ms;
+$duration-base:  320ms;
+$duration-slow:  640ms;
+
+// ── Breakpoints ───────────────────────────────────────────────────────
+$bp-sm: 32rem;   // 512px
+$bp-md: 48rem;   // 768px
+$bp-lg: 64rem;   // 1024px
+$bp-xl: 80rem;   // 1280px

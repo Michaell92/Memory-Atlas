@@ -1,0 +1,35 @@
+@use 'sass:math';
+@use 'variables' as *;
+
+// ── Layout helpers ────────────────────────────────────────────────────
+@mixin absolute-fill {
+  position: absolute;
+  inset: 0;
+}
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ── Responsive ────────────────────────────────────────────────────────
+@mixin breakpoint-up($bp) {
+  @media (min-width: $bp) {
+    @content;
+  }
+}
+
+// ── Effects ───────────────────────────────────────────────────────────
+@mixin glow($color, $strength: 1rem) {
+  box-shadow:
+    0 0 #{$strength * 0.5} rgba($color, 0.6),
+    0 0 #{$strength} rgba($color, 0.35),
+    0 0 #{$strength * 2} rgba($color, 0.15);
+}
+
+@mixin text-glow($color, $strength: 0.5rem) {
+  text-shadow:
+    0 0 #{$strength} rgba($color, 0.8),
+    0 0 #{$strength * 2} rgba($color, 0.4);
+}
