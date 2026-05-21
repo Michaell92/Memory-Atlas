@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 
+import { loadCityCatalog } from '@/modules/Globe/services/CityCatalog';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import type { MemoryScope } from '@/modules/Memory/types/memory.types';
 
@@ -13,11 +14,18 @@ import type { MemoryScope } from '@/modules/Memory/types/memory.types';
 const currentScope = ref<MemoryScope | null>(null);
 const isOpen = computed(() => currentScope.value !== null);
 
-function openAtCountry(countryCode: string, countryName: string): void {
-    currentScope.value = { kind: 'country', countryCode, countryName };
+function openAtCountry(countryCode: string, countryName: string, latitude?: number, longitude?: number): void {
+    currentScope.value = { kind: 'country', countryCode, countryName, latitude, longitude };
 }
 
-function openAtCity(cityId: string, cityName: string, countryCode: string, countryName: string): void {
+function openAtCity(
+    cityId: string,
+    cityName: string,
+    countryCode: string,
+    countryName: string,
+    latitude?: number,
+    longitude?: number,
+): void {
     const memoryStore = useMemoryStore();
     const resolvedCity = memoryStore.resolveMemoryCity(cityId, cityName, countryCode, countryName);
 
@@ -27,6 +35,8 @@ function openAtCity(cityId: string, cityName: string, countryCode: string, count
         cityName: resolvedCity.cityName,
         countryCode,
         countryName,
+        latitude,
+        longitude,
     };
 }
 
@@ -41,15 +51,21 @@ if (import.meta.hot) {
 }
 
 /** Drill from country down into a specific city while modal stays open. */
-function drillDownToCity(cityId: string, cityName: string): void {
+async function drillDownToCity(cityId: string, cityName: string): Promise<void> {
     const scope = currentScope.value;
     if (!scope) return;
+
+    const cityCatalog = await loadCityCatalog('cities15000');
+    const matchedCity = cityCatalog.find((city) => city.id === cityId) ?? null;
+
     currentScope.value = {
         kind: 'city',
         cityId,
         cityName,
         countryCode: scope.countryCode,
         countryName: scope.countryName,
+        latitude: matchedCity?.lat,
+        longitude: matchedCity?.lng,
     };
 }
 
@@ -61,6 +77,8 @@ function escalateToCountry(): void {
         kind: 'country',
         countryCode: scope.countryCode,
         countryName: scope.countryName,
+        latitude: scope.latitude,
+        longitude: scope.longitude,
     };
 }
 

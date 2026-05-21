@@ -17,6 +17,7 @@ import { ref, useTemplateRef } from 'vue';
 
 import { useGlobeCityLayer } from '@/modules/Globe/composables/useGlobeCityLayer';
 import { useGlobeCityMarkers } from '@/modules/Globe/composables/useGlobeCityMarkers';
+import { useGlobeCurrentLocationMarker } from '@/modules/Globe/composables/useGlobeCurrentLocationMarker';
 import { useGlobeRaycaster } from '@/modules/Globe/composables/useGlobeRaycaster';
 import { useGlobeScene } from '@/modules/Globe/composables/useGlobeScene';
 import { createGeoLookup, type GeoLookupHandle } from '@/modules/Globe/services/GeoLookup';
@@ -32,6 +33,7 @@ const { globeSceneHandle, isEarthReady } = useGlobeScene(canvasRef);
 const memoryModal = useMemoryModal();
 const { cachedCities } = useGlobeCityLayer(globeSceneHandle);
 const { getIntersectedCity } = useGlobeCityMarkers(globeSceneHandle, cachedCities, canvasRef);
+useGlobeCurrentLocationMarker(globeSceneHandle);
 
 const lastDetectedCountry = ref<DetectedCountry | null>(null);
 const lastDetectedCity = ref<City | null>(null);
@@ -69,9 +71,11 @@ const { raycaster } = useGlobeRaycaster(
                     detectedCity.name,
                     detectedCountry.countryCode,
                     detectedCountry.countryName,
+                    detectedCity.lat,
+                    detectedCity.lng,
                 );
             } else {
-                memoryModal.openAtCountry(detectedCountry.countryCode, detectedCountry.countryName);
+                memoryModal.openAtCountry(detectedCountry.countryCode, detectedCountry.countryName, hit.lat, hit.lng);
             }
         } else {
             console.log(`[Globe] Ocean (${hit.lat.toFixed(2)}\u00b0, ${hit.lng.toFixed(2)}\u00b0)`);

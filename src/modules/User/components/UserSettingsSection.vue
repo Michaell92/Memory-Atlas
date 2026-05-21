@@ -5,10 +5,6 @@
                 <p class="user-settings-section__eyebrow">Settings</p>
                 <h3 class="user-settings-section__title">Tune the atlas to the traveler.</h3>
             </div>
-            <p class="user-settings-section__copy">
-                Every setting persists locally today and already follows a store contract that can be backed by an API
-                later.
-            </p>
         </header>
 
         <section class="user-settings-section__block">
@@ -68,15 +64,59 @@
                 <input :value="yearOfBirth" type="date" @input="updateYearOfBirth" />
             </label>
 
-            <UserOptionSearch
-                label="Home country"
-                placeholder="Search your home country"
-                :options="countryOptions"
-                :selected-id="homeCountryCode"
-                empty-label="No country matched your search."
-                @select="selectHomeCountry"
-                @clear="clearHomeCountry"
-            />
+            <section class="user-settings-section__location-card">
+                <p class="user-settings-section__eyebrow">Home</p>
+
+                <div class="user-settings-section__location-fields">
+                    <UserOptionSearch
+                        label="Country"
+                        placeholder="Search your home country"
+                        :options="countryOptions"
+                        :selected-id="homeCountryCode"
+                        empty-label="No country matched your search."
+                        @select="selectHomeCountry"
+                        @clear="clearHomeCountry"
+                    />
+
+                    <UserOptionSearch
+                        label="City"
+                        placeholder="Search your home city"
+                        :options="homeCityOptions"
+                        :selected-id="homeCityId"
+                        :disabled="homeCountryCode.length === 0"
+                        empty-label="Choose a home country first, then search its cities."
+                        @select="selectHomeCity"
+                        @clear="clearHomeCity"
+                    />
+                </div>
+            </section>
+
+            <section class="user-settings-section__location-card">
+                <p class="user-settings-section__eyebrow">Current location</p>
+
+                <div class="user-settings-section__location-fields">
+                    <UserOptionSearch
+                        label="Country"
+                        placeholder="Search your current country"
+                        :options="countryOptions"
+                        :selected-id="currentLocationCountryCode"
+                        empty-label="No country matched your search."
+                        @select="selectCurrentLocationCountry"
+                        @clear="clearCurrentLocationCountry"
+                    />
+
+                    <UserOptionSearch
+                        label="City"
+                        placeholder="Search your current city"
+                        :options="currentLocationCityOptions"
+                        :selected-id="currentLocationCityId"
+                        :disabled="currentLocationCountryCode.length === 0"
+                        empty-label="Choose a current country first, then search its cities."
+                        @select="selectCurrentLocationCity"
+                        @clear="clearCurrentLocationCity"
+                    />
+                </div>
+            </section>
         </section>
     </section>
 </template>
@@ -85,21 +125,35 @@
 import { computed, onMounted, ref } from 'vue';
 
 import UserOptionSearch from '@/modules/User/components/UserOptionSearch.vue';
-import { loadCountrySearchOptions } from '@/modules/User/services/userLocationCatalog';
+import { loadCitySearchOptionsByCountry, loadCountrySearchOptions } from '@/modules/User/services/userLocationCatalog';
 import { useUserStore } from '@/modules/User/stores/userStore';
 import type { UserSearchOption } from '@/modules/User/types/user.types';
 
 const userStore = useUserStore();
 const countryOptions = ref<UserSearchOption[]>([]);
+const homeCityOptions = ref<UserSearchOption[]>([]);
+const currentLocationCityOptions = ref<UserSearchOption[]>([]);
 
 const activeThemeId = computed(() => userStore.currentUser?.settings.themeId ?? '');
 const brightness = computed(() => userStore.currentBrightness);
 const nickname = computed(() => userStore.currentUser?.settings.nickname ?? '');
 const yearOfBirth = computed(() => userStore.currentUser?.settings.yearOfBirth ?? '');
 const homeCountryCode = computed(() => userStore.currentUser?.settings.homeCountryCode ?? '');
+const homeCityId = computed(() => userStore.currentUser?.settings.homeCityId ?? '');
+const currentLocationCountryCode = computed(() => userStore.currentUser?.settings.currentLocationCountryCode ?? '');
+const currentLocationCountryName = computed(() => userStore.currentUser?.settings.currentLocationCountryName ?? '');
+const currentLocationCityId = computed(() => userStore.currentUser?.settings.currentLocationCityId ?? '');
 
 onMounted(async () => {
     countryOptions.value = await loadCountrySearchOptions();
+
+    if (homeCountryCode.value) {
+        homeCityOptions.value = await loadCitySearchOptionsByCountry(homeCountryCode.value);
+    }
+
+    if (currentLocationCountryCode.value) {
+        currentLocationCityOptions.value = await loadCitySearchOptionsByCountry(currentLocationCountryCode.value);
+    }
 });
 
 function updateBrightness(event: Event): void {
@@ -117,17 +171,87 @@ function updateYearOfBirth(event: Event): void {
     userStore.updateCurrentUserSettings({ yearOfBirth: target.value });
 }
 
-function selectHomeCountry(option: UserSearchOption): void {
+async function selectHomeCountry(option: UserSearchOption): Promise<void> {
+    homeCityOptions.value = await loadCitySearchOptionsByCountry(option.id);
     userStore.updateCurrentUserSettings({
         homeCountryCode: option.id,
         homeCountryName: option.label,
+        homeCityId: '',
+        homeCityName: '',
     });
 }
 
 function clearHomeCountry(): void {
+    homeCityOptions.value = [];
     userStore.updateCurrentUserSettings({
         homeCountryCode: '',
         homeCountryName: '',
+        homeCityId: '',
+        homeCityName: '',
+    });
+}
+
+function selectHomeCity(option: UserSearchOption): void {
+    userStore.updateCurrentUserSettings({
+        homeCityId: option.id,
+        homeCityName: option.label,
+    });
+}
+
+function clearHomeCity(): void {
+    userStore.updateCurrentUserSettings({
+        homeCityId: '',
+        homeCityName: '',
+    });
+}
+
+async function selectCurrentLocationCountry(option: UserSearchOption): Promise<void> {
+    currentLocationCityOptions.value = await loadCitySearchOptionsByCountry(option.id);
+
+    if (option.latitude !== undefined && option.longitude !== undefined) {
+        userStore.setCurrentLocation({
+            countryCode: option.id,
+            countryName: option.label,
+            latitude: option.latitude,
+            longitude: option.longitude,
+        });
+        return;
+    }
+
+    userStore.updateCurrentUserSettings({
+        currentLocationCountryCode: option.id,
+        currentLocationCountryName: option.label,
+        currentLocationCityId: '',
+        currentLocationCityName: '',
+    });
+}
+
+function clearCurrentLocationCountry(): void {
+    currentLocationCityOptions.value = [];
+    userStore.clearCurrentLocation();
+}
+
+function selectCurrentLocationCity(option: UserSearchOption): void {
+    if (!currentLocationCountryCode.value || option.latitude === undefined || option.longitude === undefined) {
+        return;
+    }
+
+    userStore.setCurrentLocation({
+        countryCode: currentLocationCountryCode.value,
+        countryName: option.countryName ?? currentLocationCountryName.value,
+        cityId: option.id,
+        cityName: option.label,
+        latitude: option.latitude,
+        longitude: option.longitude,
+    });
+}
+
+function clearCurrentLocationCity(): void {
+    userStore.updateCurrentUserSettings({
+        currentLocationCityId: '',
+        currentLocationCityName: '',
+        currentLocationLatitude: null,
+        currentLocationLongitude: null,
     });
 }
 </script>
@@ -159,7 +283,6 @@ function clearHomeCountry(): void {
         color: var(--theme-text);
     }
 
-    &__copy,
     &__hint {
         margin: 0.5rem 0 0;
         color: var(--theme-text-muted);
@@ -268,6 +391,20 @@ function clearHomeCountry(): void {
         strong {
             color: var(--theme-text);
         }
+    }
+
+    &__location-card {
+        display: grid;
+        gap: 1rem;
+        padding: 1rem;
+        border-radius: 1.25rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    &__location-fields {
+        display: grid;
+        gap: 1rem;
     }
 }
 

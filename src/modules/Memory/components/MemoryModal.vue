@@ -38,6 +38,21 @@
                             <span class="memory-modal__title-badge">
                                 {{ memoryCount }} {{ memoryCount === 1 ? 'memory' : 'memories' }}
                             </span>
+                            <label
+                                class="memory-modal__title-toggle"
+                                :class="{ 'memory-modal__title-toggle--disabled': !canSetCurrentLocation }"
+                            >
+                                <input
+                                    :checked="isCurrentLocationSelected"
+                                    type="checkbox"
+                                    :disabled="!canSetCurrentLocation"
+                                    @change="toggleCurrentLocation"
+                                />
+                                <span class="memory-modal__title-toggle-track">
+                                    <span class="memory-modal__title-toggle-thumb" />
+                                </span>
+                                <span class="memory-modal__title-toggle-copy">Set as current location</span>
+                            </label>
                         </h2>
 
                         <button type="button" class="memory-modal__close" aria-label="Close memories" @click="close">
@@ -68,6 +83,7 @@
                         <section class="memory-modal__memories">
                             <div class="memory-modal__memories-header">
                                 <h3 class="memory-modal__section-title">Memories</h3>
+
                                 <button type="button" class="memory-modal__add" @click="createBlankMemory">
                                     + New memory
                                 </button>
@@ -106,8 +122,10 @@ import { computed, onMounted, onUnmounted } from 'vue';
 import MemoryCard from '@/modules/Memory/components/MemoryCard.vue';
 import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
+import { useUserStore } from '@/modules/User/stores/userStore';
 
 const memoryStore = useMemoryStore();
+const userStore = useUserStore();
 const { currentScope, isOpen, close, drillDownToCity, escalateToCountry } = useMemoryModal();
 
 const visibleMemories = computed(() => {
@@ -134,6 +152,24 @@ const modalAriaLabel = computed(() => {
         ? `Memories for ${scope.cityName}, ${scope.countryName}`
         : `Memories for ${scope.countryName}`;
 });
+const canSetCurrentLocation = computed(() => {
+    const scope = currentScope.value;
+    return !!scope && scope.latitude !== undefined && scope.longitude !== undefined;
+});
+const isCurrentLocationSelected = computed(() => {
+    const scope = currentScope.value;
+    const currentLocation = userStore.currentLocation;
+    if (!scope || !currentLocation) return false;
+
+    if (scope.kind === 'city') {
+        return currentLocation.cityId === scope.cityId;
+    }
+
+    return (
+        currentLocation.countryCode === scope.countryCode &&
+        (!currentLocation.cityId || currentLocation.cityName === undefined)
+    );
+});
 
 function createBlankMemory(): void {
     const scope = currentScope.value;
@@ -149,6 +185,30 @@ function createBlankMemory(): void {
         notes: '',
         media: [],
         visitedAt: today,
+    });
+}
+
+function toggleCurrentLocation(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    const scope = currentScope.value;
+    if (!scope) return;
+
+    if (!target.checked) {
+        if (isCurrentLocationSelected.value) {
+            userStore.clearCurrentLocation();
+        }
+        return;
+    }
+
+    if (scope.latitude === undefined || scope.longitude === undefined) return;
+
+    userStore.setCurrentLocation({
+        countryCode: scope.countryCode,
+        countryName: scope.countryName,
+        cityId: scope.kind === 'city' ? scope.cityId : undefined,
+        cityName: scope.kind === 'city' ? scope.cityName : undefined,
+        latitude: scope.latitude,
+        longitude: scope.longitude,
     });
 }
 
@@ -361,8 +421,71 @@ onUnmounted(() => {
     &__memories-header {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
+        gap: 1rem;
         margin-bottom: 1rem;
+    }
+
+    &__title-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-left: auto;
+        cursor: pointer;
+
+        input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        &--disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        input:checked + .memory-modal__title-toggle-track {
+            background: rgba($color-aurora, 0.3);
+            border-color: rgba($color-aurora, 0.55);
+
+            .memory-modal__title-toggle-thumb {
+                transform: translateX(1.25rem);
+                background: #ff6767;
+                box-shadow: 0 0 0.875rem rgba(#ff6767, 0.7);
+            }
+        }
+    }
+
+    &__title-toggle-track {
+        position: relative;
+        width: 2.75rem;
+        height: 1.5rem;
+        flex: 0 0 auto;
+        border-radius: $radius-pill;
+        border: 1px solid rgba($color-aurora, 0.2);
+        background: rgba($color-void, 0.6);
+        transition:
+            background $duration-fast $ease-cinematic,
+            border-color $duration-fast $ease-cinematic;
+    }
+
+    &__title-toggle-thumb {
+        position: absolute;
+        top: 0.125rem;
+        left: 0.125rem;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        background: $color-text;
+        transition:
+            transform $duration-fast $ease-cinematic,
+            background $duration-fast $ease-cinematic,
+            box-shadow $duration-fast $ease-cinematic;
+    }
+
+    &__title-toggle-copy {
+        font-size: $font-size-sm;
+        color: $color-text;
     }
 
     &__add {

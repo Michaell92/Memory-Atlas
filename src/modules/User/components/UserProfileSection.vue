@@ -7,6 +7,17 @@
                 <p class="user-profile-section__copy">
                     Curate the globe with places that matter, then keep refining each memory card as the story grows.
                 </p>
+
+                <div class="user-profile-section__location-ribbon">
+                    <div class="user-profile-section__location-badge user-profile-section__location-badge--current">
+                        <span>Current location</span>
+                        <strong>{{ currentLocationLabel }}</strong>
+                    </div>
+                    <div class="user-profile-section__location-badge">
+                        <span>Home base</span>
+                        <strong>{{ homeCountryLabel }}</strong>
+                    </div>
+                </div>
             </div>
 
             <div class="user-profile-section__stats">
@@ -175,6 +186,18 @@ const displayedMemories = computed(() => {
         return searchText.includes(normalizedQuery);
     });
 });
+const currentLocationLabel = computed(() => {
+    const currentLocation = userStore.currentLocation;
+    if (!currentLocation) return 'Not set yet';
+    return currentLocation.cityName
+        ? `${currentLocation.cityName}, ${currentLocation.countryName}`
+        : currentLocation.countryName;
+});
+const homeCountryLabel = computed(() => {
+    const settings = userStore.currentUser?.settings;
+    if (!settings?.homeCountryName) return 'Not set yet';
+    return settings.homeCityName ? `${settings.homeCityName}, ${settings.homeCountryName}` : settings.homeCountryName;
+});
 
 onMounted(async () => {
     countryOptions.value = await loadCountrySearchOptions();
@@ -314,6 +337,38 @@ function removeMedia(memoryId: string, mediaUrl: string): void {
         max-width: 40rem;
         color: var(--theme-text-muted);
         line-height: 1.65;
+    }
+
+    &__location-ribbon {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, max-content));
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    &__location-badge {
+        display: grid;
+        gap: 0.2rem;
+        padding: 0.875rem 1rem;
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+
+        span {
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--theme-text-muted);
+        }
+
+        strong {
+            color: var(--theme-text);
+        }
+
+        &--current {
+            border-color: color-mix(in srgb, #ff5a5a 24%, transparent);
+            background: linear-gradient(135deg, rgba(255, 90, 90, 0.14), rgba(255, 255, 255, 0.04));
+        }
     }
 
     &__stats {
@@ -471,6 +526,10 @@ function removeMedia(memoryId: string, mediaUrl: string): void {
         &__collection-header {
             flex-direction: column;
             align-items: flex-start;
+        }
+
+        &__location-ribbon {
+            grid-template-columns: 1fr;
         }
 
         &__search-field {

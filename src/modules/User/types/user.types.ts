@@ -35,6 +35,23 @@ export interface UserSettings {
     yearOfBirth: string;
     homeCountryCode: string;
     homeCountryName: string;
+    homeCityId: string;
+    homeCityName: string;
+    currentLocationCountryCode: string;
+    currentLocationCountryName: string;
+    currentLocationCityId: string;
+    currentLocationCityName: string;
+    currentLocationLatitude: number | null;
+    currentLocationLongitude: number | null;
+}
+
+export interface UserCurrentLocation {
+    countryCode: string;
+    countryName: string;
+    cityId?: string;
+    cityName?: string;
+    latitude: number;
+    longitude: number;
 }
 
 export interface UserRecord {
@@ -71,4 +88,8 @@ export interface UserSearchOption {
     id: string;
     label: string;
     description?: string;
+    latitude?: number;
+    longitude?: number;
+    countryCode?: string;
+    countryName?: string;
 }

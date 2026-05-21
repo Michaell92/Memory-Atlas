@@ -4,6 +4,7 @@
         <main class="app-layout__stage">
             <RouterView />
         </main>
+        <ChatWidget />
         <UserAuthModal />
         <UserPanel />
     </div>
@@ -13,6 +14,7 @@
 import { onMounted, watch } from 'vue';
 import { RouterView } from 'vue-router';
 
+import ChatWidget from '@/modules/Chat/components/ChatWidget.vue';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import UserAuthModal from '@/modules/User/components/UserAuthModal.vue';
 import UserIdentityMenu from '@/modules/User/components/UserIdentityMenu.vue';

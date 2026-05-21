@@ -29,6 +29,10 @@ export async function loadCountrySearchOptions(): Promise<UserSearchOption[]> {
                 id: city.countryCode,
                 label: resolveCountryName(city.countryCode),
                 description: city.countryCode.toUpperCase(),
+                latitude: city.lat,
+                longitude: city.lng,
+                countryCode: city.countryCode,
+                countryName: resolveCountryName(city.countryCode),
             });
         }
 
@@ -58,6 +62,10 @@ function buildCityOptionsByCountry(cities: City[]): Map<string, UserSearchOption
             id: city.id,
             label: city.name,
             description: formatPopulation(city.population),
+            latitude: city.lat,
+            longitude: city.lng,
+            countryCode: city.countryCode,
+            countryName: resolveCountryName(city.countryCode),
         });
         groupedOptions.set(city.countryCode, countryCities);
     }

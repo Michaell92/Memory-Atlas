@@ -5,6 +5,7 @@ import type {
     LoginUserPayload,
     RegisterUserPayload,
     UserAuthMode,
+    UserCurrentLocation,
     UserMutationResult,
     UserPanelSection,
     UserRecord,
@@ -53,6 +54,27 @@ export const useUserStore = defineStore('user', () => {
     const currentBrightness = computed(
         () => currentUser.value?.settings.brightness ?? DEFAULT_USER_SETTINGS.brightness,
     );
+    const currentLocation = computed(() => {
+        const settings = currentUser.value?.settings;
+        if (
+            !settings ||
+            !settings.currentLocationCountryCode ||
+            !settings.currentLocationCountryName ||
+            settings.currentLocationLatitude === null ||
+            settings.currentLocationLongitude === null
+        ) {
+            return null;
+        }
+
+        return {
+            countryCode: settings.currentLocationCountryCode,
+            countryName: settings.currentLocationCountryName,
+            cityId: settings.currentLocationCityId || undefined,
+            cityName: settings.currentLocationCityName || undefined,
+            latitude: settings.currentLocationLatitude,
+            longitude: settings.currentLocationLongitude,
+        } satisfies UserCurrentLocation;
+    });
 
     function persistUserState(): void {
         userLocalGateway.save({
@@ -179,6 +201,28 @@ export const useUserStore = defineStore('user', () => {
         persistUserState();
     }
 
+    function setCurrentLocation(location: UserCurrentLocation): void {
+        updateCurrentUserSettings({
+            currentLocationCountryCode: location.countryCode,
+            currentLocationCountryName: location.countryName,
+            currentLocationCityId: location.cityId ?? '',
+            currentLocationCityName: location.cityName ?? '',
+            currentLocationLatitude: location.latitude,
+            currentLocationLongitude: location.longitude,
+        });
+    }
+
+    function clearCurrentLocation(): void {
+        updateCurrentUserSettings({
+            currentLocationCountryCode: '',
+            currentLocationCountryName: '',
+            currentLocationCityId: '',
+            currentLocationCityName: '',
+            currentLocationLatitude: null,
+            currentLocationLongitude: null,
+        });
+    }
+
     return {
         users,
         currentUserId,
@@ -191,6 +235,7 @@ export const useUserStore = defineStore('user', () => {
         activePanelSection,
         currentThemePalette,
         currentBrightness,
+        currentLocation,
         availableThemes: USER_THEME_PALETTES,
         openAuthDialog,
         closeAuthDialog,
@@ -203,5 +248,7 @@ export const useUserStore = defineStore('user', () => {
         loginUser,
         logoutUser,
         updateCurrentUserSettings,
+        setCurrentLocation,
+        clearCurrentLocation,
     };
 });
