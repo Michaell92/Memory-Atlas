@@ -49,8 +49,12 @@ const MARKER_DOT_SIZE_PX = 10;
 
 // ── Label constants ───────────────────────────────────────────────────────────
 
-/** Globe-space radius at which label sprites float — slightly above the dots. */
-const LABEL_SURFACE_RADIUS = 1.016;
+/**
+ * Globe-space radius at which label sprites float.
+ * Keep this only slightly above the dot radius so labels feel anchored to the
+ * marker instead of drifting with noticeable parallax during rotation.
+ */
+const LABEL_SURFACE_RADIUS = 1.008;
 
 /** Canvas height (px) used when drawing label text. Width adapts to text. */
 const LABEL_CANVAS_HEIGHT = 32;
@@ -92,12 +96,12 @@ interface CityLodConfig {
 }
 
 const CITY_LOD_CONFIGS: readonly CityLodConfig[] = [
-    { minCameraRadius: 4.0, maxDots: 40, maxLabels: 0, labelScaleHeight: 0.02 }, // world overview
-    { minCameraRadius: 2.6, maxDots: 180, maxLabels: 0, labelScaleHeight: 0.02 }, // continental
-    { minCameraRadius: 1.9, maxDots: 650, maxLabels: 10, labelScaleHeight: 0.022 }, // regional
-    { minCameraRadius: 1.45, maxDots: 1800, maxLabels: 32, labelScaleHeight: 0.018 }, // country
-    { minCameraRadius: 1.18, maxDots: 4200, maxLabels: 75, labelScaleHeight: 0.015 }, // close country
-    { minCameraRadius: 0, maxDots: 10000, maxLabels: 140, labelScaleHeight: 0.013 }, // deepest city close-up
+    { minCameraRadius: 3.0, maxDots: 0, maxLabels: 0, labelScaleHeight: 0.02 }, // world overview
+    { minCameraRadius: 2.6, maxDots: 50, maxLabels: 0, labelScaleHeight: 0.02 }, // continental
+    { minCameraRadius: 1.9, maxDots: 200, maxLabels: 10, labelScaleHeight: 0.022 }, // regional
+    { minCameraRadius: 1.45, maxDots: 400, maxLabels: 32, labelScaleHeight: 0.018 }, // country
+    { minCameraRadius: 1.18, maxDots: 1000, maxLabels: 75, labelScaleHeight: 0.015 }, // close country
+    { minCameraRadius: 0, maxDots: 2000, maxLabels: 140, labelScaleHeight: 0.013 }, // deepest city close-up
 ];
 
 function resolveCityLod(cameraRadius: number): CityLodConfig {
@@ -139,18 +143,19 @@ function applyLabelSpriteScale(labelSprite: Sprite, aspectRatio: number, labelSc
 
 /**
  * Smoothly expands the allowed label-loading window as the camera zooms in.
- * Far out we keep cities constrained to the centre 50% of the viewport;
- * at the closest zoom we allow the full viewport (NDC limit = 1.0).
+ * Far out we keep cities constrained to the centre 45% of the viewport;
+ * for the two closest zoom tiers we stop clipping entirely and allow the full
+ * viewport so near-detail exploration does not lose edge cities.
  */
 function resolveLabelViewportNdcLimit(cameraRadius: number): number {
     const furthestTightRadius = 2.6;
-    const closestFullViewportRadius = 1.18;
+    const fullViewportRadius = 1.45;
 
-    if (cameraRadius >= furthestTightRadius) return 0.5;
-    if (cameraRadius <= closestFullViewportRadius) return 1.0;
+    if (cameraRadius >= furthestTightRadius) return 0.45;
+    if (cameraRadius <= fullViewportRadius) return 1.0;
 
-    const interpolation = (furthestTightRadius - cameraRadius) / (furthestTightRadius - closestFullViewportRadius);
-    return 0.5 + interpolation * 0.5;
+    const interpolation = (furthestTightRadius - cameraRadius) / (furthestTightRadius - fullViewportRadius);
+    return 0.45 + interpolation * 0.55;
 }
 
 // ── Sprite factory ────────────────────────────────────────────────────────────
@@ -214,7 +219,7 @@ export function useGlobeCityMarkers(
     // visible per zoom tier.
     let dotPoints: Points | null = null;
     let dotGlowTexture: CanvasTexture | null = null;
-    /** Number of dot positions actually written to the buffer (≤ population-sorted city count). */
+    /** Number of dot positions currently active in the shared point buffer. */
     let dotCitiesWrittenCount = 0;
 
     // ── Label sprite state ────────────────────────────────────────────────────
@@ -235,6 +240,7 @@ export function useGlobeCityMarkers(
     const reusableViewFrustum = new Frustum();
     const reusableLabelPosition = new Vector3();
     const reusableProjectedLabelPosition = new Vector3();
+    const reusableCameraDirection = new Vector3();
 
     // Reusable raycaster + NDC vector for the hover cursor check (mousemove path).
     const hoverRaycaster = new Raycaster();
@@ -277,23 +283,32 @@ export function useGlobeCityMarkers(
     }
 
     /**
-     * Writes dot positions for cities[0..targetCount) into the pre-allocated
-     * buffer. Idempotent: skips work if the requested count is already written.
+     * Rewrites the shared point buffer with the currently focused visible city
+     * set. Dots must follow the same focus area as labels; a global top-N list
+     * makes edge countries look "loaded" even when the user is not looking at
+     * them.
      */
-    function ensureDotPositionsWritten(cities: readonly City[], targetCount: number): void {
-        if (targetCount <= dotCitiesWrittenCount) return;
+    function syncDotPositions(cities: readonly City[]): void {
         const points = ensureDotPoints();
         const positionAttribute = points.geometry.attributes['position']!;
         const positionsArray = positionAttribute.array as Float32Array;
 
-        const writeUntil = Math.min(targetCount, cities.length, CITY_LOD_MAX_DOTS);
-        for (let cityIndex = dotCitiesWrittenCount; cityIndex < writeUntil; cityIndex++) {
+        const writeUntil = Math.min(cities.length, CITY_LOD_MAX_DOTS);
+        for (let cityIndex = 0; cityIndex < writeUntil; cityIndex++) {
             const city = cities[cityIndex]!;
             const dotPosition = latLngTo3D(city.lat, city.lng, MARKER_SURFACE_RADIUS);
             positionsArray[cityIndex * 3] = dotPosition.x;
             positionsArray[cityIndex * 3 + 1] = dotPosition.y;
             positionsArray[cityIndex * 3 + 2] = dotPosition.z;
         }
+
+        // Clear any trailing stale positions if the focused set shrank.
+        for (let cityIndex = writeUntil; cityIndex < dotCitiesWrittenCount; cityIndex++) {
+            positionsArray[cityIndex * 3] = 0;
+            positionsArray[cityIndex * 3 + 1] = 0;
+            positionsArray[cityIndex * 3 + 2] = 0;
+        }
+
         positionAttribute.needsUpdate = true;
         dotCitiesWrittenCount = writeUntil;
     }
@@ -375,11 +390,6 @@ export function useGlobeCityMarkers(
         const lodConfig = resolveCityLod(cameraRadius);
         const labelViewportNdcLimit = resolveLabelViewportNdcLimit(cameraRadius);
 
-        // ── Dots: global top-N by population ─────────────────────────────────
-        const dotsCount = Math.min(lodConfig.maxDots, cities.length);
-        ensureDotPositionsWritten(cities, dotsCount);
-        ensureDotPoints().geometry.setDrawRange(0, dotsCount);
-
         // ── Labels: viewport-visible top-N ────────────────────────────────────
         // Build the camera frustum once for this poll. camera.matrixWorld must
         // be current — the render loop calls camera.updateMatrixWorld() each
@@ -388,13 +398,19 @@ export function useGlobeCityMarkers(
         camera.updateMatrixWorld();
         reusableViewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
         reusableViewFrustum.setFromProjectionMatrix(reusableViewProjectionMatrix);
+        reusableCameraDirection.copy(cameraPosition).normalize();
+
+        // For a unit sphere observed from distance r, the visible cap is
+        // defined by n·v >= 1/r where n is the surface normal and v is the
+        // camera direction from globe centre. Anything below that sits beyond
+        // the geometric horizon and must never show a label.
+        const minimumVisibleDot = 1 / Math.max(cameraRadius, 1.0001);
 
         // Walk cities in population-descending order (already sorted). Accept a
         // city only if it passes both the back-face and frustum tests. Stop once
         // the tier's label cap is reached so we never allocate more than needed.
-        const viewportCities: City[] = [];
-        const searchLimit = Math.min(dotsCount, cities.length);
-        for (let cityIndex = 0; cityIndex < searchLimit; cityIndex++) {
+        const visibleFocusedCities: City[] = [];
+        for (let cityIndex = 0; cityIndex < cities.length; cityIndex++) {
             const city = cities[cityIndex]!;
 
             // Cache the surface normal (unit vector pointing outward from globe).
@@ -404,25 +420,32 @@ export function useGlobeCityMarkers(
                 cityNormals.set(city.id, cityNormal);
             }
 
-            // Back-face test: city must face the camera hemisphere.
-            if (cityNormal.dot(cameraPosition) <= 0.1) continue;
+            // Horizon test: city must lie on the actually visible spherical cap,
+            // not just the rough front hemisphere.
+            if (cityNormal.dot(reusableCameraDirection) < minimumVisibleDot) continue;
 
             // Frustum test: city label position must be inside the view volume.
             reusableLabelPosition.copy(cityNormal).multiplyScalar(LABEL_SURFACE_RADIUS);
             if (!reusableViewFrustum.containsPoint(reusableLabelPosition)) continue;
 
-            // Tighten label loading to the center window of the viewport, but
-            // let that window expand as the user zooms in so close-up
-            // exploration can include more off-centre cities.
+            // Viewport-space focus gate. Keep the highest zoom tighter than the
+            // full screen so city registration does not flood the edges.
             reusableProjectedLabelPosition.copy(reusableLabelPosition).project(camera);
-            if (Math.abs(reusableProjectedLabelPosition.x) > labelViewportNdcLimit) continue;
-            if (Math.abs(reusableProjectedLabelPosition.y) > labelViewportNdcLimit) continue;
+            const normalizedDistanceFromCenter = Math.hypot(
+                reusableProjectedLabelPosition.x,
+                reusableProjectedLabelPosition.y,
+            );
+            if (normalizedDistanceFromCenter > labelViewportNdcLimit) continue;
 
-            viewportCities.push(city);
-            if (viewportCities.length >= lodConfig.maxLabels) break;
+            visibleFocusedCities.push(city);
+            if (visibleFocusedCities.length >= lodConfig.maxDots) break;
         }
 
-        reconcileViewportLabels(viewportCities, lodConfig.labelScaleHeight);
+        // ── Dots: focused visible top-N by population ────────────────────────
+        syncDotPositions(visibleFocusedCities);
+        ensureDotPoints().geometry.setDrawRange(0, visibleFocusedCities.length);
+
+        reconcileViewportLabels(visibleFocusedCities.slice(0, lodConfig.maxLabels), lodConfig.labelScaleHeight);
     }
 
     function runLodFrame(): void {

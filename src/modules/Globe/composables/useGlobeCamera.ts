@@ -122,7 +122,7 @@ export function useGlobeCamera(
                 0,
                 1,
             );
-            zoomScaleFactor = 0.14 + 0.86 * nearZoomFraction * nearZoomFraction;
+            zoomScaleFactor = 0.045 + 0.955 * nearZoomFraction * nearZoomFraction * nearZoomFraction;
         } else {
             const farZoomFraction = MathUtils.clamp(
                 (spherical.radius - initialRadius) / (maxRadius - initialRadius),
@@ -132,10 +132,24 @@ export function useGlobeCamera(
             zoomScaleFactor = 1 + farZoomFraction * 0.35;
         }
 
+        // At the closest zooms, cap raw drag velocity as well. Otherwise a
+        // single large pointer delta can still inject too much angular speed
+        // before the precision curve has a chance to help.
+        const closeZoomFraction = MathUtils.clamp((spherical.radius - minRadius) / 0.2, 0, 1);
+        const angularVelocityCap = 0.45 + closeZoomFraction * 1.8;
+
         // Write to target — the update loop lerps actual velocity toward this,
         // low-pass-filtering out hand jitter without dulling intentional sweeps.
-        targetAngularVelocity.theta = -movementX * rotateSpeed * 60 * zoomScaleFactor;
-        targetAngularVelocity.phi = -movementY * rotateSpeed * 60 * zoomScaleFactor;
+        targetAngularVelocity.theta = MathUtils.clamp(
+            -movementX * rotateSpeed * 60 * zoomScaleFactor,
+            -angularVelocityCap,
+            angularVelocityCap,
+        );
+        targetAngularVelocity.phi = MathUtils.clamp(
+            -movementY * rotateSpeed * 60 * zoomScaleFactor,
+            -angularVelocityCap,
+            angularVelocityCap,
+        );
     }
 
     function onPointerEnd(event: PointerEvent) {

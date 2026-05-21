@@ -22,7 +22,7 @@ import type { CountrySymbolsHandle, CountrySymbolsOptions } from '@/modules/Glob
  * their country is on the back hemisphere.
  */
 export async function createCountrySymbols(options: CountrySymbolsOptions = {}): Promise<CountrySymbolsHandle> {
-    const { globeRadius = 1, resolution = '50m', spriteWorldSize = 0.04, symbolCanvasSize = 256 } = options;
+    const { globeRadius = 1, resolution = '50m', spriteWorldSize = 0.028, symbolCanvasSize = 256 } = options;
 
     const topology = await loadTopology(resolution);
     const countriesObject = topology.objects['countries'] as GeometryCollection;
