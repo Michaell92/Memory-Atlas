@@ -2,11 +2,12 @@ import {
     ACESFilmicToneMapping,
     AmbientLight,
     Color,
+    DirectionalLight,
     Mesh,
     MeshStandardMaterial,
     PerspectiveCamera,
-    PointLight,
     Scene,
+    ShaderMaterial,
     SphereGeometry,
     SRGBColorSpace,
     Vector3,
@@ -15,33 +16,63 @@ import {
 import Stats from 'three/addons/libs/stats.module.js';
 import { BloomEffect, EffectComposer, EffectPass, RenderPass } from 'postprocessing';
 import gsap from 'gsap';
-import { onBeforeUnmount, onMounted, shallowRef, type Ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, shallowRef, type Ref } from 'vue';
 
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
 import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
+import { createCountryBorders } from '@/modules/Globe/services/CountryBorders';
+import { createCountrySymbols } from '@/modules/Globe/services/CountrySymbols';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
 import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
-import type { EarthTextureHandle, GlobeSceneHandle, GlobeSceneOptions } from '@/modules/Globe/types/globe.types';
+import type {
+    CountryBordersHandle,
+    CountrySymbolsHandle,
+    EarthTextureHandle,
+    GlobeSceneHandle,
+    GlobeSceneOptions,
+} from '@/modules/Globe/types/globe.types';
 
 /**
- * Boot the Globe stage. Single owner of the render loop.
+ * Computes the normalised world-space direction from the globe centre toward
+ * the real-world sun for the given date/time.
  *
- * Composables and services this orchestrates internally:
- *   - useGlobeCamera        → custom inertia controller (drag / pinch / wheel)
- *   - createStarfield       → shader-driven 8k-star celestial sphere
- *   - postprocessing        → EffectComposer + bloom pass
- *   - gsap                  → cinematic intro tween from far orbit → viewing distance
- *   - stats.js              → dev-only FPS overlay
- *
- * Future composables (markers, raycaster, atmosphere shader) should take the
- * returned `globeSceneHandle` and register additional per-frame hooks through
- * a callback registry rather than spinning up their own RAF loops.
+ * Formula:
+ *   - Solar declination: the latitude (±23.45°) where the sun is directly
+ *     overhead, driven by Earth's axial tilt across the year.
+ *   - Subsolar longitude: at UTC 12:00 the sub-solar point is at 0° (Greenwich);
+ *     each UTC hour shifts it 15° westward.
+ *   - Result is converted using the globe's world-space convention:
+ *       x = cos(lat)·sin(lng),  y = sin(lat),  z = cos(lat)·cos(lng)
  */
+function computeRealTimeSunDirection(date: Date): Vector3 {
+    const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000) + 1;
+
+    // Approximate solar declination in radians.
+    const declinationRad = -23.45 * Math.cos(((2 * Math.PI) / 365) * (dayOfYear + 10)) * (Math.PI / 180);
+
+    // Subsolar longitude: solar noon is at 0° when it's 12:00 UTC.
+    const utcFractionalHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+
+    // Adjusted by subtracting Math.PI / 2 to align the absolute solar longitude
+    // calculation with the globe mesh rotation (globe.rotation.y = -Math.PI / 2).
+    const subsolarLngRad = (12 - utcFractionalHours) * 15 * (Math.PI / 180) - Math.PI / 2;
+
+    return new Vector3(
+        Math.cos(declinationRad) * Math.sin(subsolarLngRad),
+        Math.sin(declinationRad),
+        Math.cos(declinationRad) * Math.cos(subsolarLngRad),
+    );
+}
+
+const SUN_DISTANCE = 100;
+
 export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>, options: GlobeSceneOptions = {}) {
     const { radius = 1, segments = 64, showStats = import.meta.env.DEV, bloom = true } = options;
 
     const globeSceneHandle = shallowRef<GlobeSceneHandle | null>(null);
+    const isEarthReady = ref(false);
 
     let animationFrameId = 0;
     let lastFrameTime = 0;
@@ -54,6 +85,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
     let starfieldUpdate: ((elapsedSeconds: number) => void) | null = null;
     let cosmicPhenomenaUpdate: ((elapsedSeconds: number, deltaSeconds: number) => void) | null = null;
     let fpsStats: Stats | null = null;
+    let sunSyncIntervalId: ReturnType<typeof setInterval> | null = null;
 
     function handleResize(canvas: HTMLCanvasElement) {
         const currentHandle = globeSceneHandle.value;
@@ -98,6 +130,10 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         starfieldUpdate = null;
         cosmicPhenomenaUpdate = null;
         fpsStats = null;
+        if (sunSyncIntervalId !== null) {
+            clearInterval(sunSyncIntervalId);
+            sunSyncIntervalId = null;
+        }
     }
 
     onMounted(() => {
@@ -120,21 +156,11 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
         // ── Scene & camera ────────────────────────────────────────────────
         const scene = new Scene();
-        // Opaque deep-space background. The canvas is alpha:true so the
-        // CSS nebula gradient sits behind it, but we still need an opaque
-        // scene fill — otherwise the globe inherits the transparent canvas
-        // alpha through the bloom pass and reads as see-through. The colour
-        // matches `$color-deep-space` so the seam against the CSS gradient
-        // is invisible.
         scene.background = new Color('#060914');
         const camera = new PerspectiveCamera(45, 1, 0.1, 200);
 
         // ── Globe ──────────────────────────────────────────────────────────────
-        // The diffuse map is built in the background from world-atlas
-        // topojson; the planet renders with a flat blue ocean color until
-        // the texture resolves, then swaps in seamlessly.
-        // Shared sun direction — used by the globe shader patch, lights, and atmosphere.
-        const sunDirectionWorld = new Vector3(5, 3, 5).normalize();
+        const sunDirectionWorld = computeRealTimeSunDirection(new Date());
 
         const globeGeometry = new SphereGeometry(radius, segments, segments);
         const globeMaterial = new MeshStandardMaterial({
@@ -143,33 +169,15 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             metalness: 0.0,
         });
 
-        // Patch the standard material so the emissive contribution is only
-        // added on the night side. Without this, emissive is flat-additive
-        // everywhere and over-brightens the day hemisphere.
-        //
-        // Strategy: inject a `vSunFacing` varying (world-space dot of normal
-        // and sun direction) and multiply totalEmissiveRadiance by
-        // `1 - smoothstep(0, 0.35, vSunFacing)` — that's 1.0 deep in shadow,
-        // 0.0 in sunlight, soft cross-fade over the terminator band.
         globeMaterial.onBeforeCompile = (shader) => {
-            shader.uniforms['uSunDirection'] = { value: sunDirectionWorld };
-            // Prepend declarations to both shaders.
-            shader.vertexShader = 'varying float vSunFacing;\nuniform vec3 uSunDirection;\n' + shader.vertexShader;
-            // Compute sun-facing per vertex in world space after the normal
-            // has been set up. `objectNormal` is available after `beginnormal_vertex`.
-            shader.vertexShader = shader.vertexShader.replace(
-                '#include <begin_vertex>',
-                `#include <begin_vertex>
-        vec3 worldNormalDirection = normalize(mat3(modelMatrix) * objectNormal);
-        vSunFacing = dot(worldNormalDirection, normalize(uSunDirection));`,
-            );
-            shader.fragmentShader = 'varying float vSunFacing;\n' + shader.fragmentShader;
             shader.fragmentShader = shader.fragmentShader.replace(
                 'vec3 totalEmissiveRadiance = emissive;',
                 `vec3 totalEmissiveRadiance = emissive;
-        // Night-side gate: smoothly fade emissive to zero on the day side.
-        float nightEmissiveFactor = 1.0 - smoothstep(0.0, 1.3, vSunFacing);
-        totalEmissiveRadiance *= nightEmissiveFactor;`,
+        #if NUM_DIR_LIGHTS > 0
+            float sunFacing = dot(normalize(vNormal), directionalLights[0].direction);
+            float nightEmissiveFactor = 1.0 - smoothstep(0.0, 1.3, sunFacing);
+            totalEmissiveRadiance *= nightEmissiveFactor;
+        #endif`,
             );
         };
 
@@ -180,6 +188,9 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         scene.add(globe);
 
         let earthTexture: EarthTextureHandle | null = null;
+        let countryBorders: CountryBordersHandle | null = null;
+        let countrySymbols: CountrySymbolsHandle | null = null;
+
         createEarthTexture({
             width: 4096,
             oceanColor: '#1d3b8a',
@@ -190,26 +201,46 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             .then((handle) => {
                 earthTexture = handle;
                 globeMaterial.map = handle.texture;
-                // Reuse the same texture as an emissive map so the night side
-                // glows faintly with its own colors instead of going pitch
-                // black. Low emissiveIntensity keeps the day/night terminator
-                // clearly readable while ensuring the cartoony palette never
-                // disappears into shadow.
                 globeMaterial.emissiveMap = handle.texture;
                 globeMaterial.emissive = new Color('#ffffff');
-                globeMaterial.emissiveIntensity = 0.35;
+                globeMaterial.emissiveIntensity = 0.46;
                 globeMaterial.needsUpdate = true;
+                isEarthReady.value = true;
+
+                // Start borders and symbols only after the earth texture is painted.
+                // By this point TopoLoader has the topology cached in memory, so
+                // both calls skip the network + JSON.parse and only pay for their
+                // own compute work — and that work is spread across frames instead
+                // of all three services firing in one synchronous CPU burst.
+                createCountryBorders({ globeRadius: radius, resolution: '50m' })
+                    .then((bordersHandle) => {
+                        countryBorders = bordersHandle;
+                        scene.add(bordersHandle.object);
+                    })
+                    .catch((error) => {
+                        console.error('[Globe] Failed to build country borders', error);
+                    });
+
+                createCountrySymbols({ globeRadius: radius, resolution: '50m' })
+                    .then((symbolsHandle) => {
+                        countrySymbols = symbolsHandle;
+                        scene.add(symbolsHandle.object);
+                    })
+                    .catch((error) => {
+                        console.error('[Globe] Failed to build country symbols', error);
+                    });
             })
             .catch((error) => {
                 console.error('[Globe] Failed to build Earth texture', error);
             });
 
         // ── Lights ────────────────────────────────────────────────────────
-        const sunLight = new PointLight(0xfff3d6, 2.8, 0, 0);
-        // Position matches sunDirectionWorld — both describe the same star.
-        sunLight.position.set(5, 3, 5);
+        const sunLight = new DirectionalLight(0xfff3d6, 4.2);
+        sunLight.position.copy(sunDirectionWorld).multiplyScalar(SUN_DISTANCE);
+        sunLight.target.position.set(0, 0, 0);
         scene.add(sunLight);
-        const ambientLight = new AmbientLight(0x6b7aa8, 0.55);
+        scene.add(sunLight.target);
+        const ambientLight = new AmbientLight(0x6b7aa8, 0.28);
         scene.add(ambientLight);
 
         // ── Atmosphere (Fresnel rim glow + terminator highlight) ─────────
@@ -223,6 +254,21 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             sunDirection: sunDirectionWorld,
         });
         scene.add(atmosphere.object);
+
+        // ── Real-time sun position ────────────────────────────────────────────
+        const atmosphereSunUniform = (atmosphere.object.material as ShaderMaterial).uniforms['uSunDirection']!
+            .value as Vector3;
+
+        function updateSunPosition(): void {
+            const sunDir = computeRealTimeSunDirection(new Date());
+            sunDirectionWorld.copy(sunDir);
+            sunLight.position.copy(sunDir).multiplyScalar(SUN_DISTANCE);
+            sunLight.target.updateMatrixWorld();
+            atmosphereSunUniform.copy(sunDir);
+        }
+
+        updateSunPosition();
+        sunSyncIntervalId = setInterval(updateSunPosition, 60_000);
 
         // ── Starfield ─────────────────────────────────────────────────────
         const starfield = createStarfield({
@@ -252,8 +298,6 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
         let bloomEffect: BloomEffect | null = null;
         if (bloom) {
-            // Threshold sits between dim background stars and our hero phenomena,
-            // so only white dwarfs / pulsar peaks / supernova flashes actually bloom.
             bloomEffect = new BloomEffect({
                 intensity: 0.9,
                 luminanceThreshold: 0.55,
@@ -304,6 +348,8 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 cosmicPhenomena.dispose();
                 atmosphere.dispose();
                 earthTexture?.dispose();
+                countryBorders?.dispose();
+                countrySymbols?.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();
                 globeGeometry.dispose();
@@ -322,5 +368,5 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
     onBeforeUnmount(disposeScene);
 
-    return { globeSceneHandle };
+    return { globeSceneHandle, isEarthReady };
 }

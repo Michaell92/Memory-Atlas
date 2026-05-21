@@ -39,7 +39,7 @@ export function useGlobeRaycaster(
     globeSceneHandleRef: Readonly<Ref<GlobeSceneHandle | null>>,
     onHit: (result: GlobeHitResult) => void,
     onMiss?: () => void,
-) {
+): { raycaster: Raycaster } {
     const raycaster = new Raycaster();
     const pointerNdc = new Vector2();
 
@@ -109,4 +109,6 @@ export function useGlobeRaycaster(
         canvas.removeEventListener('pointerdown', handlePointerDown);
         canvas.removeEventListener('pointerup', handlePointerUp);
     });
+
+    return { raycaster };
 }

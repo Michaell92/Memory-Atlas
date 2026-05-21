@@ -18,6 +18,8 @@ withDefaults(defineProps<{ label?: string }>(), { label: 'Loading orbit…' });
     flex-direction: column;
     gap: $space-md;
     color: $color-text-muted;
+    background: $color-deep-space;
+    z-index: $z-modal;
 
     &__orbit {
         position: relative;
@@ -26,6 +28,7 @@ withDefaults(defineProps<{ label?: string }>(), { label: 'Loading orbit…' });
         border-radius: 50%;
         border: 1px solid rgba($color-aurora, 0.25);
         animation: app-loader-spin 2.4s linear infinite;
+        will-change: transform;
     }
 
     &__core {

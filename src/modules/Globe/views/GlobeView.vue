@@ -2,10 +2,13 @@
     <div class="globe-view">
         <canvas ref="canvasRef" class="globe-view__canvas" />
         <div v-if="lastDetectedCountry" class="globe-view__hit-debug">
-            <span v-if="lastDetectedCity">{{ lastDetectedCity.name }}, {{ lastDetectedCountry.countryName }}</span>
+            <span v-if="lastDetectedCity && lastDetectedCountry"
+                >{{ lastDetectedCity.name }}, {{ lastDetectedCountry.countryName }}</span
+            >
             <span v-else>{{ lastDetectedCountry.countryName }}</span>
         </div>
         <MemoryModal />
+        <AppLoader v-if="!isEarthReady" label="Mapping your world…" />
     </div>
 </template>
 
@@ -20,14 +23,15 @@ import { createGeoLookup, type GeoLookupHandle } from '@/modules/Globe/services/
 import type { DetectedCountry } from '@/modules/Globe/types/globe.types';
 import MemoryModal from '@/modules/Memory/components/MemoryModal.vue';
 import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
+import AppLoader from '@/shared/components/AppLoader.vue';
 import type { City } from '@/shared/types/city.types';
 
 const canvasRef = useTemplateRef<HTMLCanvasElement>('canvasRef');
 
-const { globeSceneHandle } = useGlobeScene(canvasRef);
+const { globeSceneHandle, isEarthReady } = useGlobeScene(canvasRef);
 const memoryModal = useMemoryModal();
-const { cachedCities, findNearestCity } = useGlobeCityLayer(globeSceneHandle);
-useGlobeCityMarkers(globeSceneHandle, cachedCities);
+const { cachedCities } = useGlobeCityLayer(globeSceneHandle);
+const { getIntersectedCity } = useGlobeCityMarkers(globeSceneHandle, cachedCities, canvasRef);
 
 const lastDetectedCountry = ref<DetectedCountry | null>(null);
 const lastDetectedCity = ref<City | null>(null);
@@ -41,12 +45,14 @@ createGeoLookup('110m')
         console.error('[Globe] Failed to load geo lookup', error);
     });
 
-useGlobeRaycaster(
+const { raycaster } = useGlobeRaycaster(
     canvasRef,
     globeSceneHandle,
     (hit) => {
         const detectedCountry = geoLookupHandle?.detectCountry(hit.lat, hit.lng) ?? null;
-        const detectedCity = findNearestCity(hit.lat, hit.lng);
+        // Only look for a city when a country was found, and only when the click
+        // lands directly on a visible city label sprite (exact hit test).
+        const detectedCity = detectedCountry ? getIntersectedCity(raycaster) : null;
 
         lastDetectedCountry.value = detectedCountry;
         lastDetectedCity.value = detectedCity;

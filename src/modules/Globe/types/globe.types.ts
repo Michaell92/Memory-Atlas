@@ -170,3 +170,39 @@ export interface EarthTextureHandle {
     /** Release GPU resources. Idempotent. */
     dispose: () => void;
 }
+
+export interface CountryBordersOptions {
+    /** Globe surface radius in world units. Default 1. */
+    globeRadius?: number;
+    /** Topology resolution. Default '50m'. */
+    resolution?: '110m' | '50m' | '10m';
+    /** CSS-compatible border color. Default '#ffffff'. */
+    color?: string;
+    /** Line opacity 0-1. Default 0.55. */
+    opacity?: number;
+}
+
+export interface CountryBordersHandle {
+    /** The LineSegments object to add to your scene. */
+    object: import('three').LineSegments;
+    /** Release GPU resources. Idempotent. */
+    dispose: () => void;
+}
+
+export interface CountrySymbolsOptions {
+    /** Globe surface radius in world units. Default 1. */
+    globeRadius?: number;
+    /** Topology resolution. Default '50m'. */
+    resolution?: '110m' | '50m' | '10m';
+    /** Sprite world-space size as a fraction of globeRadius. Default 0.09. */
+    spriteWorldSize?: number;
+    /** Canvas side length in pixels for each symbol texture. Default 256. */
+    symbolCanvasSize?: number;
+}
+
+export interface CountrySymbolsHandle {
+    /** The Group containing all country symbol Sprites. Add to your scene. */
+    object: import('three').Group;
+    /** Dispose all sprite materials and textures. Idempotent. */
+    dispose: () => void;
+}

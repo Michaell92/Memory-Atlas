@@ -4,6 +4,7 @@ import { feature, mesh } from 'topojson-client';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import type { Feature, FeatureCollection, Geometry, MultiLineString } from 'geojson';
 
+import { loadTopology } from '@/modules/Globe/services/TopoLoader';
 import type { EarthTextureHandle, EarthTextureOptions } from '@/modules/Globe/types/globe.types';
 
 /**
@@ -76,8 +77,7 @@ export async function createEarthTexture(options: EarthTextureOptions = {}): Pro
     }
 
     // ── Load topology ─────────────────────────────────────────────────────
-    const topologyUrl = `https://cdn.jsdelivr.net/npm/world-atlas@2/countries-${resolution}.json`;
-    const topology = (await fetch(topologyUrl).then((response) => response.json())) as Topology;
+    const topology = await loadTopology(resolution);
     const countriesObject = topology.objects['countries'] as GeometryCollection;
     const countriesFeatureCollection = feature(topology, countriesObject) as unknown as FeatureCollection<Geometry>;
     const bordersMesh = mesh(topology, countriesObject, (a, b) => a !== b) as MultiLineString;
