@@ -112,10 +112,25 @@ export function useGlobeCamera(
         const movementY = event.clientY - lastPointerPosition.y;
         lastPointerPosition.set(event.clientX, event.clientY);
 
-        // Scale rotation speed proportionally to zoom distance so panning feels
-        // consistent: close-up (small radius) moves slowly and precisely;
-        // far out (large radius) sweeps quickly.
-        const zoomScaleFactor = spherical.radius / initialRadius;
+        // Use a much stronger precision curve near the minimum radius.
+        // Linear scaling still feels too fast once the user is inspecting one
+        // country closely, so we square the normalized near-zoom fraction.
+        let zoomScaleFactor = 1;
+        if (spherical.radius <= initialRadius) {
+            const nearZoomFraction = MathUtils.clamp(
+                (spherical.radius - minRadius) / (initialRadius - minRadius),
+                0,
+                1,
+            );
+            zoomScaleFactor = 0.14 + 0.86 * nearZoomFraction * nearZoomFraction;
+        } else {
+            const farZoomFraction = MathUtils.clamp(
+                (spherical.radius - initialRadius) / (maxRadius - initialRadius),
+                0,
+                1,
+            );
+            zoomScaleFactor = 1 + farZoomFraction * 0.35;
+        }
 
         // Write to target — the update loop lerps actual velocity toward this,
         // low-pass-filtering out hand jitter without dulling intentional sweeps.

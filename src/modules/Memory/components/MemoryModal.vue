@@ -197,12 +197,12 @@ onUnmounted(() => {
     inset: 0;
     z-index: $z-modal;
     @include flex-center;
+    contain: layout paint;
 
     &__backdrop {
         position: absolute;
         inset: 0;
-        background: radial-gradient(ellipse at center, rgba($color-nebula, 0.25), rgba($color-void, 0.55));
-        backdrop-filter: blur(0.25rem);
+        background: transparent;
     }
 
     &__panel {
@@ -212,26 +212,11 @@ onUnmounted(() => {
         display: flex;
         flex-direction: column;
         border-radius: $radius-lg;
-        background: linear-gradient(155deg, rgba($color-cosmic-dust, 0.18), rgba($color-nebula, 0.12));
-        border: 1px solid rgba($color-aurora, 0.35);
-        box-shadow:
-            0 1.5rem 4rem rgba($color-void, 0.45),
-            inset 0 1px 0 rgba($color-aurora, 0.2),
-            0 0 4rem rgba($color-aurora, 0.1);
-        backdrop-filter: blur(2.5rem) saturate(1.4);
+        background: rgba($color-void, 0.96);
+        border: 1px solid rgba($color-aurora, 0.2);
+        box-shadow: 0 1rem 2rem rgba($color-void, 0.38);
         overflow: hidden;
-
-        // Animated glow sheen along the top edge — gamified detail.
-        &::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba($color-aurora, 0.8), transparent);
-            animation: memory-modal-sheen 4s $ease-cinematic infinite;
-        }
+        contain: layout paint;
     }
 
     &__header {
@@ -322,6 +307,7 @@ onUnmounted(() => {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
+        content-visibility: auto;
     }
 
     &__section-title {
@@ -426,16 +412,6 @@ onUnmounted(() => {
     }
 }
 
-@keyframes memory-modal-sheen {
-    0%,
-    100% {
-        opacity: 0.3;
-    }
-    50% {
-        opacity: 1;
-    }
-}
-
 .memory-modal-enter-active,
 .memory-modal-leave-active {
     transition: opacity $duration-base $ease-cinematic;
@@ -453,7 +429,7 @@ onUnmounted(() => {
 
     .memory-modal__panel {
         opacity: 0;
-        transform: translateY(1rem) scale(0.96);
+        transform: translateY(0.75rem) scale(0.985);
     }
 }
 </style>

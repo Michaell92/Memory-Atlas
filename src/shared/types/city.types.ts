@@ -11,4 +11,6 @@ export interface City {
     countryName: string;
     lat: number;
     lng: number;
+    /** Optional GeoNames population for LOD / importance ranking. */
+    population?: number;
 }

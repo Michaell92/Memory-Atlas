@@ -144,18 +144,20 @@ function handleDateChange(event: Event): void {
     gap: 0.875rem;
     padding: 1.125rem;
     border-radius: $radius-lg;
-    background: linear-gradient(145deg, rgba($color-cosmic-dust, 0.35), rgba($color-nebula, 0.2));
+    background: rgba($color-cosmic-dust, 0.34);
     border: 1px solid rgba($color-aurora, 0.12);
-    backdrop-filter: blur(0.75rem);
     transition:
         transform $duration-base $ease-cinematic,
         border-color $duration-base $ease-cinematic,
         box-shadow $duration-base $ease-cinematic;
+    contain: layout paint;
+    content-visibility: auto;
+    contain-intrinsic-size: 20rem;
 
     &:hover {
         border-color: rgba($color-aurora, 0.3);
         transform: translateY(-0.125rem);
-        box-shadow: 0 0.75rem 2rem rgba($color-void, 0.4);
+        box-shadow: 0 0.375rem 1rem rgba($color-void, 0.2);
     }
 
     &__title-row {

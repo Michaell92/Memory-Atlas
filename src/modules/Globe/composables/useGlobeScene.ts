@@ -20,12 +20,14 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, type Ref } from 'vue';
 
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
 import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
+import { createCountryMeshes } from '@/modules/Globe/services/CountryMeshes';
 import { createCountrySymbols } from '@/modules/Globe/services/CountrySymbols';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
 import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
 import { createShootingStars } from '@/modules/Globe/services/ShootingStars';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
 import type {
+    CountryMeshesHandle,
     CountrySymbolsHandle,
     EarthTextureHandle,
     GlobeSceneHandle,
@@ -42,7 +44,7 @@ import type {
  *     overhead, driven by Earth's axial tilt across the year.
  *   - Subsolar longitude: at UTC 12:00 the sub-solar point is at 0° (Greenwich);
  *     each UTC hour shifts it 15° westward.
- *   - Result is converted using the globe's world-space convention:
+ *   - Result is converted directly into the project's world-space lat/lng convention:
  *       x = cos(lat)·sin(lng),  y = sin(lat),  z = cos(lat)·cos(lng)
  */
 function computeRealTimeSunDirection(date: Date): Vector3 {
@@ -54,10 +56,7 @@ function computeRealTimeSunDirection(date: Date): Vector3 {
 
     // Subsolar longitude: solar noon is at 0° when it's 12:00 UTC.
     const utcFractionalHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
-
-    // Adjusted by subtracting Math.PI / 2 to align the absolute solar longitude
-    // calculation with the globe mesh rotation (globe.rotation.y = -Math.PI / 2).
-    const subsolarLngRad = (12 - utcFractionalHours) * 15 * (Math.PI / 180) - Math.PI / 2;
+    const subsolarLngRad = (12 - utcFractionalHours) * 15 * (Math.PI / 180);
 
     return new Vector3(
         Math.cos(declinationRad) * Math.sin(subsolarLngRad),
@@ -118,10 +117,21 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         animationFrameId = requestAnimationFrame(renderFrame);
     }
 
-    function disposeScene() {
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        animationFrameId = 0;
+    function startRenderLoop(): void {
+        if (animationFrameId !== 0) return;
+        animationFrameId = requestAnimationFrame(renderFrame);
+    }
+
+    function stopRenderLoop(): void {
+        if (animationFrameId !== 0) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = 0;
+        }
         lastFrameTime = 0;
+    }
+
+    function disposeScene() {
+        stopRenderLoop();
         elapsedSeconds = 0;
         resizeObserver?.disconnect();
         resizeObserver = null;
@@ -160,15 +170,17 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         // ── Scene & camera ────────────────────────────────────────────────
         const scene = new Scene();
         scene.background = new Color('#060914');
-        const camera = new PerspectiveCamera(45, 1, 0.1, 200);
+        const camera = new PerspectiveCamera(45, 1, 0.001, 200);
 
         // ── Globe ──────────────────────────────────────────────────────────────
         const sunDirectionWorld = computeRealTimeSunDirection(new Date());
 
         const globeGeometry = new SphereGeometry(radius, segments, segments);
         const globeMaterial = new MeshStandardMaterial({
-            color: new Color('#1d3b8a'),
-            roughness: 0.85,
+            color: new Color('#2f7df6'),
+            emissive: new Color('#1b56cf'),
+            emissiveIntensity: 0.45,
+            roughness: 0.75,
             metalness: 0.0,
         });
 
@@ -190,22 +202,15 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         globe.rotation.y = -Math.PI / 2;
         scene.add(globe);
 
-        let earthTexture: EarthTextureHandle | null = null;
+        let countryMeshes: CountryMeshesHandle | null = null;
         let countrySymbols: CountrySymbolsHandle | null = null;
 
-        createEarthTexture({
-            width: 8192,
-            oceanColor: '#1d3b8a',
-            borderWidth: 0,
-            resolution: '50m',
-        })
-            .then((handle) => {
-                earthTexture = handle;
-                globeMaterial.map = handle.texture;
-                globeMaterial.emissiveMap = handle.texture;
-                globeMaterial.emissive = new Color('#ffffff');
-                globeMaterial.emissiveIntensity = 0.46;
-                globeMaterial.needsUpdate = true;
+        // Build the country layer as 3D vector geometry — stays crisp at any
+        // zoom level. The base sphere underneath supplies the ocean color.
+        createCountryMeshes({ globeRadius: radius, resolution: '50m' })
+            .then((meshesHandle) => {
+                countryMeshes = meshesHandle;
+                scene.add(meshesHandle.object);
                 isEarthReady.value = true;
 
                 createCountrySymbols({ globeRadius: radius, resolution: '50m' })
@@ -218,7 +223,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                     });
             })
             .catch((error) => {
-                console.error('[Globe] Failed to build Earth texture', error);
+                console.error('[Globe] Failed to build country meshes', error);
             });
 
         // ── Lights ────────────────────────────────────────────────────────
@@ -301,7 +306,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         }
 
         // ── Custom camera controller ──────────────────────────────────────
-        const controller = useGlobeCamera(camera, canvas, { initialRadius: 3.2 });
+        const controller = useGlobeCamera(camera, canvas, { initialRadius: 3.2, minRadius: 1.005 });
 
         // ── Dev FPS overlay ───────────────────────────────────────────────
         let stats: Stats | null = null;
@@ -340,7 +345,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 cosmicPhenomena.dispose();
                 atmosphere.dispose();
                 shootingStars.dispose();
-                earthTexture?.dispose();
+                countryMeshes?.dispose();
                 countrySymbols?.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();
@@ -355,7 +360,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         resizeObserver = new ResizeObserver(() => handleResize(canvas));
         resizeObserver.observe(canvas);
 
-        animationFrameId = requestAnimationFrame(renderFrame);
+        startRenderLoop();
     });
 
     onBeforeUnmount(disposeScene);

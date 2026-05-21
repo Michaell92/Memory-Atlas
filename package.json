@@ -19,7 +19,9 @@
     "format": "oxfmt src/"
   },
   "dependencies": {
+    "@types/earcut": "^3.0.0",
     "d3-geo": "^3.1.1",
+    "earcut": "^3.0.2",
     "gsap": "^3.15.0",
     "pinia": "^3.0.4",
     "postprocessing": "^6.39.1",

@@ -1,5 +1,6 @@
 import type {
     CanvasTexture,
+    Group,
     LineSegments,
     Mesh,
     PerspectiveCamera,
@@ -177,6 +178,31 @@ export interface EarthTextureHandle {
     canvas: HTMLCanvasElement;
     /** Re-render the base map (call after mutating options). */
     redraw: () => void;
+    /** Release GPU resources. Idempotent. */
+    dispose: () => void;
+}
+
+export interface CountryMeshesOptions {
+    /** Globe radius in world units. Default 1. */
+    globeRadius?: number;
+    /** Topology resolution. Default '50m'. */
+    resolution?: '110m' | '50m' | '10m';
+    /** Pastel fill palette. */
+    palette?: string[];
+    /** Seed for deterministic country→color assignment. Default 1. */
+    paletteSeed?: number;
+    /**
+     * Maximum polygon edge length in degrees before densification splits it.
+     * Lower = smoother sphere curvature, more triangles. Default 1.0.
+     */
+    maxEdgeDegrees?: number;
+    /** Multiplier on globeRadius to lift meshes above any base sphere. Default 1.0005. */
+    surfaceOffset?: number;
+}
+
+export interface CountryMeshesHandle {
+    /** Group containing one Mesh per country. Each mesh has userData.countryCode/countryName. */
+    object: Group;
     /** Release GPU resources. Idempotent. */
     dispose: () => void;
 }

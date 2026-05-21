@@ -3,6 +3,8 @@ import {
     BufferGeometry,
     CanvasTexture,
     Float32BufferAttribute,
+    Frustum,
+    Matrix4,
     Points,
     PointsMaterial,
     Raycaster,
@@ -66,38 +68,47 @@ const LABEL_TEXT_COLOR = '#7ef7c0';
  */
 const LABEL_SCALE_HEIGHT = 0.028;
 
-/** How often (ms) to poll camera radius and refresh LOD visibility. */
-const LOD_POLL_INTERVAL_MS = 200;
-
 // ── LOD table ─────────────────────────────────────────────────────────────────
 
 /**
- * How many city labels to show at each zoom tier, keyed by the minimum camera
- * radius that activates the tier. Checked in descending order (farthest first);
- * the first match wins.
+ * LOD table — both dot count and label count rise as the camera zooms in.
  *
- * Because GeoNames returns cities sorted by population, the first N entries in
- * `cachedCities` are always the globally most significant cities at that zoom.
+ * Why scope dots by LOD too?
+ *   Allocating a Sprite + CanvasTexture per city for all 33k entries up front
+ *   pins megabytes of GPU memory and crashes weak devices. The buffer is
+ *   pre-sized for the deepest tier, but `setDrawRange` only exposes the
+ *   current tier's slice. Sprites are created lazily as the tier grows and
+ *   disposed when it shrinks, so memory tracks active visual density, not
+ *   dataset size.
+ *
+ * Because cities are sorted by population at load time, slicing the top-N is
+ * the same as showing the most globally significant cities at that zoom.
  */
-interface LabelLodConfig {
+interface CityLodConfig {
     readonly minCameraRadius: number;
-    readonly maxVisibleLabels: number;
+    readonly maxDots: number;
+    readonly maxLabels: number;
+    readonly labelScaleHeight: number;
 }
 
-const LABEL_LOD_CONFIGS: readonly LabelLodConfig[] = [
-    { minCameraRadius: 3.5, maxVisibleLabels: 10 }, // world overview — capitals only
-    { minCameraRadius: 2.5, maxVisibleLabels: 25 }, // continental
-    { minCameraRadius: 2.0, maxVisibleLabels: 50 }, // regional
-    { minCameraRadius: 1.7, maxVisibleLabels: 80 }, // country-level
-    { minCameraRadius: 0, maxVisibleLabels: 250 }, // city-level (zoomed in close)
+const CITY_LOD_CONFIGS: readonly CityLodConfig[] = [
+    { minCameraRadius: 4.0, maxDots: 40, maxLabels: 0, labelScaleHeight: 0.02 }, // world overview
+    { minCameraRadius: 2.6, maxDots: 180, maxLabels: 0, labelScaleHeight: 0.02 }, // continental
+    { minCameraRadius: 1.9, maxDots: 650, maxLabels: 10, labelScaleHeight: 0.022 }, // regional
+    { minCameraRadius: 1.45, maxDots: 1800, maxLabels: 32, labelScaleHeight: 0.018 }, // country
+    { minCameraRadius: 1.18, maxDots: 4200, maxLabels: 75, labelScaleHeight: 0.015 }, // close country
+    { minCameraRadius: 0, maxDots: 10000, maxLabels: 140, labelScaleHeight: 0.013 }, // deepest city close-up
 ];
 
-function resolveMaxVisibleLabels(cameraRadius: number): number {
-    for (const config of LABEL_LOD_CONFIGS) {
-        if (cameraRadius >= config.minCameraRadius) return config.maxVisibleLabels;
+function resolveCityLod(cameraRadius: number): CityLodConfig {
+    for (const config of CITY_LOD_CONFIGS) {
+        if (cameraRadius >= config.minCameraRadius) return config;
     }
-    return LABEL_LOD_CONFIGS[LABEL_LOD_CONFIGS.length - 1]!.maxVisibleLabels;
+    return CITY_LOD_CONFIGS[CITY_LOD_CONFIGS.length - 1]!;
 }
+
+/** The deepest tier — used to pre-allocate the dot position buffer once. */
+const CITY_LOD_MAX_DOTS = CITY_LOD_CONFIGS.reduce((highest, config) => Math.max(highest, config.maxDots), 0);
 
 // ── Dot texture factory ───────────────────────────────────────────────────────
 
@@ -122,13 +133,33 @@ function createDotGlowTexture(): CanvasTexture {
     return new CanvasTexture(canvas);
 }
 
+function applyLabelSpriteScale(labelSprite: Sprite, aspectRatio: number, labelScaleHeight: number): void {
+    labelSprite.scale.set(aspectRatio * labelScaleHeight, labelScaleHeight, 1.0);
+}
+
+/**
+ * Smoothly expands the allowed label-loading window as the camera zooms in.
+ * Far out we keep cities constrained to the centre 50% of the viewport;
+ * at the closest zoom we allow the full viewport (NDC limit = 1.0).
+ */
+function resolveLabelViewportNdcLimit(cameraRadius: number): number {
+    const furthestTightRadius = 2.6;
+    const closestFullViewportRadius = 1.18;
+
+    if (cameraRadius >= furthestTightRadius) return 0.5;
+    if (cameraRadius <= closestFullViewportRadius) return 1.0;
+
+    const interpolation = (furthestTightRadius - cameraRadius) / (furthestTightRadius - closestFullViewportRadius);
+    return 0.5 + interpolation * 0.5;
+}
+
 // ── Sprite factory ────────────────────────────────────────────────────────────
 
 /**
  * Creates a billboard Sprite whose texture is the city name rendered onto a
  * tight canvas. Caller is responsible for calling disposeLabelSprite() when done.
  */
-function createCityLabelSprite(cityName: string): Sprite {
+function createCityLabelSprite(cityName: string, labelScaleHeight: number): Sprite {
     // Measure the text so the canvas is exactly as wide as needed.
     const measureCanvas = document.createElement('canvas');
     const measureContext = measureCanvas.getContext('2d')!;
@@ -158,7 +189,8 @@ function createCityLabelSprite(cityName: string): Sprite {
     const labelSprite = new Sprite(labelMaterial);
     labelSprite.renderOrder = 2; // render after opaque globe, depthTest off so always on top
     const aspectRatio = labelCanvas.width / labelCanvas.height;
-    labelSprite.scale.set(aspectRatio * LABEL_SCALE_HEIGHT, LABEL_SCALE_HEIGHT, 1.0);
+    labelSprite.userData['aspectRatio'] = aspectRatio;
+    applyLabelSpriteScale(labelSprite, aspectRatio, labelScaleHeight);
 
     return labelSprite;
 }
@@ -177,20 +209,32 @@ export function useGlobeCityMarkers(
     canvasRef: Readonly<Ref<HTMLCanvasElement | null>>,
 ): { getIntersectedCity: (raycaster: Raycaster) => City | null } {
     // ── Dot points state ──────────────────────────────────────────────────────
-    // One Points object covers all cities in a single draw call.
-    // dotGlowTexture is created once and shared across Points recreations.
+    // One Points object covers all city dots in a single draw call. Allocated
+    // once at the deepest LOD's capacity; `setDrawRange` controls how many are
+    // visible per zoom tier.
     let dotPoints: Points | null = null;
     let dotGlowTexture: CanvasTexture | null = null;
-    let dotPositionsCapacity = 0;
+    /** Number of dot positions actually written to the buffer (≤ population-sorted city count). */
+    let dotCitiesWrittenCount = 0;
 
     // ── Label sprite state ────────────────────────────────────────────────────
-    // Map from city.id → Sprite. Cache is append-only so we only create each once.
+    // Map from city.id → Sprite. Sprites are created lazily as the active LOD
+    // tier expands and disposed when the tier shrinks below their rank, so
+    // GPU texture memory tracks visible density, not dataset size.
     const cityLabelSprites = new Map<string, Sprite>();
-    // Reverse map for O(1) city lookup when a raycaster hit returns a Sprite.
     const spriteToCity = new Map<Sprite, City>();
-    // Surface normal (unit vector) per city — used for back-face culling.
+    /** Surface normal (unit vector) per city — used for back-face culling. */
     const cityNormals = new Map<string, Vector3>();
-    let lodPollIntervalId: ReturnType<typeof setInterval> | null = null;
+    let lodAnimationFrameId = 0;
+    const previousCameraPosition = new Vector3();
+    let previousCameraRadius = 0;
+    let hasCameraSnapshot = false;
+
+    // Reusable objects allocated once to avoid GC churn inside the 200 ms poll.
+    const reusableViewProjectionMatrix = new Matrix4();
+    const reusableViewFrustum = new Frustum();
+    const reusableLabelPosition = new Vector3();
+    const reusableProjectedLabelPosition = new Vector3();
 
     // Reusable raycaster + NDC vector for the hover cursor check (mousemove path).
     const hoverRaycaster = new Raycaster();
@@ -198,28 +242,29 @@ export function useGlobeCityMarkers(
 
     // ── Dot points lifecycle ──────────────────────────────────────────────────
 
-    function createDotPoints(capacity: number): Points {
+    function ensureDotPoints(): Points {
+        if (dotPoints) return dotPoints;
         if (!dotGlowTexture) dotGlowTexture = createDotGlowTexture();
 
         const dotGeometry = new BufferGeometry();
-        const positionsArray = new Float32Array(capacity * 3);
+        const positionsArray = new Float32Array(CITY_LOD_MAX_DOTS * 3);
         dotGeometry.setAttribute('position', new Float32BufferAttribute(positionsArray, 3));
         dotGeometry.setDrawRange(0, 0);
 
         const dotMaterial = new PointsMaterial({
-            color: 0xffffff, // white so the texture's cyan renders unmodified
+            color: 0xffffff,
             size: MARKER_DOT_SIZE_PX,
             map: dotGlowTexture,
-            sizeAttenuation: false, // constant pixel size — never grows on zoom-in
+            sizeAttenuation: false,
             transparent: true,
             depthTest: true,
             depthWrite: false,
             blending: AdditiveBlending,
         });
 
-        const dotPointsObject = new Points(dotGeometry, dotMaterial);
-        dotPointsObject.frustumCulled = false;
-        return dotPointsObject;
+        dotPoints = new Points(dotGeometry, dotMaterial);
+        dotPoints.frustumCulled = false;
+        return dotPoints;
     }
 
     function destroyDotPoints(): void {
@@ -227,9 +272,30 @@ export function useGlobeCityMarkers(
         globeSceneHandleRef.value?.scene.remove(dotPoints);
         dotPoints.geometry.dispose();
         (dotPoints.material as PointsMaterial).dispose();
-        // dotGlowTexture is NOT disposed here — it is reused across recreations.
         dotPoints = null;
-        dotPositionsCapacity = 0;
+        dotCitiesWrittenCount = 0;
+    }
+
+    /**
+     * Writes dot positions for cities[0..targetCount) into the pre-allocated
+     * buffer. Idempotent: skips work if the requested count is already written.
+     */
+    function ensureDotPositionsWritten(cities: readonly City[], targetCount: number): void {
+        if (targetCount <= dotCitiesWrittenCount) return;
+        const points = ensureDotPoints();
+        const positionAttribute = points.geometry.attributes['position']!;
+        const positionsArray = positionAttribute.array as Float32Array;
+
+        const writeUntil = Math.min(targetCount, cities.length, CITY_LOD_MAX_DOTS);
+        for (let cityIndex = dotCitiesWrittenCount; cityIndex < writeUntil; cityIndex++) {
+            const city = cities[cityIndex]!;
+            const dotPosition = latLngTo3D(city.lat, city.lng, MARKER_SURFACE_RADIUS);
+            positionsArray[cityIndex * 3] = dotPosition.x;
+            positionsArray[cityIndex * 3 + 1] = dotPosition.y;
+            positionsArray[cityIndex * 3 + 2] = dotPosition.z;
+        }
+        positionAttribute.needsUpdate = true;
+        dotCitiesWrittenCount = writeUntil;
     }
 
     // ── Label sprite lifecycle ────────────────────────────────────────────────
@@ -245,84 +311,163 @@ export function useGlobeCityMarkers(
         cityNormals.clear();
     }
 
-    // ── LOD visibility ────────────────────────────────────────────────────────
+    // ── LOD application ───────────────────────────────────────────────────────
 
-    function applyLodVisibility(cities: readonly City[], maxVisibleLabels: number): void {
-        const cameraPosition = globeSceneHandleRef.value?.camera.position;
-
-        for (let cityIndex = 0; cityIndex < cities.length; cityIndex++) {
-            const city = cities[cityIndex]!;
-            const labelSprite = cityLabelSprites.get(city.id);
-            if (!labelSprite) continue;
-
-            // LOD: only show top-N cities by population rank.
-            const withinLod = cityIndex < maxVisibleLabels;
-
-            // Back-face cull: hide cities on the far side of the globe.
-            // A city's surface normal dot-product with the camera position
-            // is positive when the city faces the camera side of the globe.
-            // Threshold > 0 adds a limb margin to avoid flicker at the edge.
-            const cityNormal = cityNormals.get(city.id);
-            const isFacingCamera = cameraPosition && cityNormal ? cityNormal.dot(cameraPosition) > 0.1 : true;
-
-            labelSprite.visible = withinLod && isFacingCamera;
-        }
-    }
-
-    function pollLodVisibility(): void {
-        const camera = globeSceneHandleRef.value?.camera;
-        if (!camera) return;
-        const cameraRadius = camera.position.length();
-        applyLodVisibility(cachedCitiesRef.value, resolveMaxVisibleLabels(cameraRadius));
-    }
-
-    // ── Full update ───────────────────────────────────────────────────────────
-
-    function updateMarkersAndLabels(cities: readonly City[]): void {
+    /**
+     * Reconciles label sprite allocation to exactly match the provided set of
+     * viewport-visible cities. Sprites for cities no longer visible are disposed;
+     * sprites for newly visible cities are lazily created. Memory therefore tracks
+     * what is actually on screen, not the full dataset or the LOD tier cap.
+     */
+    function reconcileViewportLabels(viewportCities: readonly City[], labelScaleHeight: number): void {
         const sceneHandle = globeSceneHandleRef.value;
         if (!sceneHandle) return;
 
-        // Dots ─────────────────────────────────────────────────────────────────
-        if (!dotPoints || cities.length > dotPositionsCapacity) {
-            destroyDotPoints();
-            dotPositionsCapacity = Math.ceil(cities.length * 1.5);
-            dotPoints = createDotPoints(dotPositionsCapacity);
-            sceneHandle.scene.add(dotPoints);
+        // Build a fast lookup of which city IDs should be visible this frame.
+        const targetCityIds = new Set<string>(viewportCities.map((city) => city.id));
+
+        // Shrink: dispose sprites that left the viewport.
+        for (const [cityId, labelSprite] of cityLabelSprites) {
+            if (!targetCityIds.has(cityId)) {
+                sceneHandle.scene.remove(labelSprite);
+                spriteToCity.delete(labelSprite);
+                disposeLabelSprite(labelSprite);
+                cityLabelSprites.delete(cityId);
+            }
         }
 
-        const positionAttribute = dotPoints.geometry.attributes['position']!;
-        const positionsArray = positionAttribute.array as Float32Array;
-        for (let cityIndex = 0; cityIndex < cities.length; cityIndex++) {
+        // Grow: allocate sprites for newly visible cities and ensure all are shown.
+        for (const city of viewportCities) {
+            let labelSprite = cityLabelSprites.get(city.id);
+            if (!labelSprite) {
+                labelSprite = createCityLabelSprite(city.name, labelScaleHeight);
+                const labelPosition = latLngTo3D(city.lat, city.lng, LABEL_SURFACE_RADIUS);
+                labelSprite.position.set(labelPosition.x, labelPosition.y, labelPosition.z);
+                cityLabelSprites.set(city.id, labelSprite);
+                spriteToCity.set(labelSprite, city);
+                sceneHandle.scene.add(labelSprite);
+            }
+            const aspectRatio = Number(labelSprite.userData['aspectRatio'] ?? 1);
+            applyLabelSpriteScale(labelSprite, aspectRatio, labelScaleHeight);
+            labelSprite.visible = true;
+        }
+    }
+
+    /**
+     * Single source of LOD truth. Runs every 200 ms and on data/scene changes.
+     *
+     * Dots  — global top-N by population (setDrawRange controls count; the sphere
+     *          naturally occludes back-hemisphere dots via depth testing).
+     * Labels — top-N by population filtered to the current camera viewport: only
+     *          cities that face the camera AND lie within the frustum get sprites,
+     *          so the labels shown are always the most significant cities that are
+     *          actually visible right now.
+     */
+    function applyCurrentLod(): void {
+        const sceneHandle = globeSceneHandleRef.value;
+        if (!sceneHandle) return;
+        const cities = cachedCitiesRef.value;
+        if (cities.length === 0) return;
+        const camera = sceneHandle.camera;
+
+        const cameraPosition = camera.position;
+        const cameraRadius = cameraPosition.length();
+        const lodConfig = resolveCityLod(cameraRadius);
+        const labelViewportNdcLimit = resolveLabelViewportNdcLimit(cameraRadius);
+
+        // ── Dots: global top-N by population ─────────────────────────────────
+        const dotsCount = Math.min(lodConfig.maxDots, cities.length);
+        ensureDotPositionsWritten(cities, dotsCount);
+        ensureDotPoints().geometry.setDrawRange(0, dotsCount);
+
+        // ── Labels: viewport-visible top-N ────────────────────────────────────
+        // Build the camera frustum once for this poll. camera.matrixWorld must
+        // be current — the render loop calls camera.updateMatrixWorld() each
+        // frame, so by the time the poll fires it is already up to date. We call
+        // it here too as a safety net for the first poll before the first frame.
+        camera.updateMatrixWorld();
+        reusableViewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        reusableViewFrustum.setFromProjectionMatrix(reusableViewProjectionMatrix);
+
+        // Walk cities in population-descending order (already sorted). Accept a
+        // city only if it passes both the back-face and frustum tests. Stop once
+        // the tier's label cap is reached so we never allocate more than needed.
+        const viewportCities: City[] = [];
+        const searchLimit = Math.min(dotsCount, cities.length);
+        for (let cityIndex = 0; cityIndex < searchLimit; cityIndex++) {
             const city = cities[cityIndex]!;
-            const dotPosition = latLngTo3D(city.lat, city.lng, MARKER_SURFACE_RADIUS);
-            positionsArray[cityIndex * 3] = dotPosition.x;
-            positionsArray[cityIndex * 3 + 1] = dotPosition.y;
-            positionsArray[cityIndex * 3 + 2] = dotPosition.z;
+
+            // Cache the surface normal (unit vector pointing outward from globe).
+            let cityNormal = cityNormals.get(city.id);
+            if (!cityNormal) {
+                cityNormal = latLngTo3D(city.lat, city.lng, 1.0);
+                cityNormals.set(city.id, cityNormal);
+            }
+
+            // Back-face test: city must face the camera hemisphere.
+            if (cityNormal.dot(cameraPosition) <= 0.1) continue;
+
+            // Frustum test: city label position must be inside the view volume.
+            reusableLabelPosition.copy(cityNormal).multiplyScalar(LABEL_SURFACE_RADIUS);
+            if (!reusableViewFrustum.containsPoint(reusableLabelPosition)) continue;
+
+            // Tighten label loading to the center window of the viewport, but
+            // let that window expand as the user zooms in so close-up
+            // exploration can include more off-centre cities.
+            reusableProjectedLabelPosition.copy(reusableLabelPosition).project(camera);
+            if (Math.abs(reusableProjectedLabelPosition.x) > labelViewportNdcLimit) continue;
+            if (Math.abs(reusableProjectedLabelPosition.y) > labelViewportNdcLimit) continue;
+
+            viewportCities.push(city);
+            if (viewportCities.length >= lodConfig.maxLabels) break;
         }
-        positionAttribute.needsUpdate = true;
-        dotPoints.geometry.setDrawRange(0, cities.length);
 
-        // Labels ───────────────────────────────────────────────────────────────
-        // Only create sprites for cities not yet in the map. Because the tile
-        // cache is append-only, existing sprites are simply reused.
-        for (let cityIndex = 0; cityIndex < cities.length; cityIndex++) {
-            const city = cities[cityIndex]!;
-            if (cityLabelSprites.has(city.id)) continue;
+        reconcileViewportLabels(viewportCities, lodConfig.labelScaleHeight);
+    }
 
-            const labelSprite = createCityLabelSprite(city.name);
-            const labelPosition = latLngTo3D(city.lat, city.lng, LABEL_SURFACE_RADIUS);
-            labelSprite.position.set(labelPosition.x, labelPosition.y, labelPosition.z);
-            labelSprite.visible = false; // LOD poll will reveal the correct subset
+    function runLodFrame(): void {
+        lodAnimationFrameId = 0;
 
-            cityLabelSprites.set(city.id, labelSprite);
-            spriteToCity.set(labelSprite, city);
-            // Pre-compute the city's globe surface normal for back-face culling.
-            cityNormals.set(city.id, latLngTo3D(city.lat, city.lng, 1.0));
-            sceneHandle.scene.add(labelSprite);
+        const camera = globeSceneHandleRef.value?.camera;
+        if (camera && cachedCitiesRef.value.length > 0) {
+            const cameraRadius = camera.position.length();
+            const cameraMoved =
+                !hasCameraSnapshot ||
+                previousCameraPosition.distanceToSquared(camera.position) > 0.000001 ||
+                Math.abs(cameraRadius - previousCameraRadius) > 0.0001;
+
+            if (cameraMoved) {
+                applyCurrentLod();
+                previousCameraPosition.copy(camera.position);
+                previousCameraRadius = cameraRadius;
+                hasCameraSnapshot = true;
+            }
         }
 
-        // Force a LOD re-evaluation so newly added sprites appear immediately.
-        pollLodVisibility();
+        lodAnimationFrameId = requestAnimationFrame(runLodFrame);
+    }
+
+    function startLodLoop(): void {
+        if (lodAnimationFrameId !== 0) return;
+        lodAnimationFrameId = requestAnimationFrame(runLodFrame);
+    }
+
+    function stopLodLoop(): void {
+        if (lodAnimationFrameId !== 0) {
+            cancelAnimationFrame(lodAnimationFrameId);
+            lodAnimationFrameId = 0;
+        }
+    }
+
+    // ── Initial scene wiring when cities first arrive ─────────────────────────
+
+    function attachDotPointsToScene(): void {
+        const sceneHandle = globeSceneHandleRef.value;
+        if (!sceneHandle) return;
+        const points = ensureDotPoints();
+        if (!sceneHandle.scene.children.includes(points)) {
+            sceneHandle.scene.add(points);
+        }
     }
 
     // ── City intersection (exact sprite hit test) ─────────────────────────────
@@ -373,8 +518,13 @@ export function useGlobeCityMarkers(
 
     // ── Watchers ──────────────────────────────────────────────────────────────
 
-    watch(cachedCitiesRef, (updatedCities) => {
-        updateMarkersAndLabels(updatedCities);
+    watch(cachedCitiesRef, () => {
+        attachDotPointsToScene();
+        // Cities arrived (or replaced). Reset any cached writes that referenced
+        // the previous list so the new positions are written from scratch.
+        dotCitiesWrittenCount = 0;
+        hasCameraSnapshot = false;
+        applyCurrentLod();
     });
 
     watch(globeSceneHandleRef, (newHandle) => {
@@ -386,19 +536,20 @@ export function useGlobeCityMarkers(
             newHandle.scene.add(labelSprite);
         }
 
-        // If cities were cached before the scene was ready, render them now.
         if (cachedCitiesRef.value.length > 0) {
-            updateMarkersAndLabels(cachedCitiesRef.value);
+            attachDotPointsToScene();
+            hasCameraSnapshot = false;
+            applyCurrentLod();
         }
     });
 
     onMounted(() => {
-        lodPollIntervalId = setInterval(pollLodVisibility, LOD_POLL_INTERVAL_MS);
+        startLodLoop();
         canvasRef.value?.addEventListener('pointermove', handlePointerMove);
     });
 
     onBeforeUnmount(() => {
-        if (lodPollIntervalId !== null) clearInterval(lodPollIntervalId);
+        stopLodLoop();
         canvasRef.value?.removeEventListener('pointermove', handlePointerMove);
         destroyDotPoints();
         dotGlowTexture?.dispose();

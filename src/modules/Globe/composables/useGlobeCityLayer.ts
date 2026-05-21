@@ -1,171 +1,84 @@
-import { PerspectiveCamera } from 'three';
 import { onBeforeUnmount, onMounted, shallowRef, type Ref } from 'vue';
 
-import { createCityLookup, type CityLookupHandle } from '@/modules/Globe/services/CityLookup';
+import { loadCityCatalog, type CitiesDataset } from '@/modules/Globe/services/CityCatalog';
 import type { GlobeSceneHandle } from '@/modules/Globe/types/globe.types';
 import type { City } from '@/shared/types/city.types';
 
 /**
- * Wires the CityLookup service to the Vue component lifecycle and the live
- * camera position.
+ * Loads the bundled GeoNames city catalog from `/public/cities` once and
+ * exposes the parsed `City[]` to downstream consumers (e.g. the marker
+ * layer in `useGlobeCityMarkers`).
  *
- * How it works
- * ─────────────
- * 1. A 200 ms interval reads the camera position each tick.
- * 2. If the camera has moved beyond a hysteresis threshold the interval resets
- *    a 700 ms "settle" timer — identical to a debounce on camera movement.
- * 3. When the timer fires (camera is stationary) it calls
- *    `ensureCitiesForViewport`, which fetches any uncached tiles and resolves.
- * 4. After resolution, `cachedCities` is updated so downstream consumers
- *    (e.g. an InstancedMesh marker layer) can react.
+ * The previous implementation streamed tiles from the GeoNames web API.
+ * Memory Atlas is meant to feel like a self-contained product, so we ship
+ * the dataset locally and load all 33k cities once on mount.
  *
- * The composable is intentionally passive: it does not own a render loop or
- * modify the Three.js scene directly. City markers should be built separately
- * by reading `cachedCities`.
- *
- * Graceful degradation
- * ─────────────────────
- * If `VITE_GEONAMES_USERNAME` is not set the composable logs a warning and
- * returns an empty cities list. Country-level features continue to work.
+ * The `_globeSceneHandleRef` argument is kept for API stability with the
+ * existing GlobeView wiring; it is intentionally unused.
  */
 
-const CAMERA_POLL_INTERVAL_MS = 200;
+const DEFAULT_DATASET: CitiesDataset = 'cities15000';
 
-/**
- * How long the camera must be stationary after a zoom before tiles are fetched.
- * Prevents firing mid-pinch or mid-scroll.
- */
-const CAMERA_SETTLE_DELAY_MS = 800;
+export function useGlobeCityLayer(_globeSceneHandleRef: Readonly<Ref<GlobeSceneHandle | null>>) {
+    void _globeSceneHandleRef;
 
-/**
- * Minimum radius change that counts as a new zoom level and triggers a refresh.
- * Panning and auto-rotation do NOT trigger a refresh — the tile cache handles
- * the geographic coverage problem (tiles fetched once, cached forever).
- */
-const MINIMUM_RADIUS_CHANGE = 0.12;
-
-export function useGlobeCityLayer(globeSceneHandleRef: Readonly<Ref<GlobeSceneHandle | null>>) {
     const cachedCities = shallowRef<readonly City[]>([]);
-
-    let cityLookupHandle: CityLookupHandle | null = null;
-    let pollIntervalId: ReturnType<typeof setInterval> | null = null;
-    let settleTimerId: ReturnType<typeof setTimeout> | null = null;
-
-    // Camera radius at the last fetch trigger — used to detect zoom-level changes.
-    // Position (lat/lng) is intentionally NOT tracked: auto-rotation and panning
-    // do not trigger re-fetches. The tile cache ensures cities persist across pans.
-    let lastTriggeredRadius = NaN;
-
-    // ── Camera geo-position ─────────────────────────────────────────────────
-
-    function computeCameraGeoPosition(camera: PerspectiveCamera): {
-        centerLat: number;
-        centerLng: number;
-        cameraRadius: number;
-    } {
-        const cameraRadius = camera.position.length();
-        // Normalise the camera position vector to the unit sphere surface point
-        // directly beneath the camera — this is the centre of the visible cap.
-        const normalizedX = camera.position.x / cameraRadius;
-        const normalizedY = camera.position.y / cameraRadius;
-        const normalizedZ = camera.position.z / cameraRadius;
-
-        // World-space inverse of latLngTo3D (which accounts for globe.rotation.y = -π/2):
-        //   x_world = cos(lat)*sin(lng)  →  lng = atan2(x, z)
-        //   z_world = cos(lat)*cos(lng)
-        //   y_world = sin(lat)           →  lat = asin(y)
-        //
-        // The old formula atan2(-z, x) was the LOCAL-space inverse and produced
-        // a ~90° systematic error: the initial camera (world +Z = Greenwich)
-        // returned lng=−90° (Americas), fetching cities from the wrong hemisphere.
-        const centerLat = Math.asin(Math.max(-1, Math.min(1, normalizedY))) * (180 / Math.PI);
-        const centerLng = Math.atan2(normalizedX, normalizedZ) * (180 / Math.PI);
-
-        return { centerLat, centerLng, cameraRadius };
-    }
-
-    // ── Viewport refresh ────────────────────────────────────────────────────
-
-    function refreshCitiesForCurrentViewport(centerLat: number, centerLng: number, cameraRadius: number): void {
-        if (!cityLookupHandle) return;
-
-        cityLookupHandle
-            .ensureCitiesForViewport(centerLat, centerLng, cameraRadius)
-            .then(() => {
-                cachedCities.value = cityLookupHandle!.getCachedCities();
-            })
-            .catch((error: unknown) => {
-                console.error('[CityLayer] Failed to fetch cities for viewport', error);
-            });
-    }
-
-    // ── Camera poll loop ────────────────────────────────────────────────────
-
-    function pollCameraPosition(): void {
-        const camera = globeSceneHandleRef.value?.camera;
-        if (!camera) return;
-
-        const { centerLat, centerLng, cameraRadius } = computeCameraGeoPosition(camera);
-
-        // Only trigger on initial load or when the user zooms (radius changes).
-        // Auto-rotation and panning do NOT trigger a refresh — this is intentional.
-        // The tile cache ensures already-fetched cities remain visible across pans.
-        const isInitialLoad = isNaN(lastTriggeredRadius);
-        const zoomLevelChanged = !isInitialLoad && Math.abs(cameraRadius - lastTriggeredRadius) > MINIMUM_RADIUS_CHANGE;
-
-        if (!isInitialLoad && !zoomLevelChanged) return;
-
-        lastTriggeredRadius = cameraRadius;
-
-        // Debounce: wait for zooming to finish before firing the fetch.
-        if (settleTimerId !== null) clearTimeout(settleTimerId);
-        settleTimerId = setTimeout(() => {
-            settleTimerId = null;
-            refreshCitiesForCurrentViewport(centerLat, centerLng, cameraRadius);
-        }, CAMERA_SETTLE_DELAY_MS);
-    }
-
-    // ── Lifecycle ───────────────────────────────────────────────────────────
+    let isUnmounted = false;
 
     onMounted(() => {
-        const geonamesUsername = import.meta.env.VITE_GEONAMES_USERNAME as string | undefined;
-
-        if (!geonamesUsername) {
-            console.warn(
-                '[CityLayer] VITE_GEONAMES_USERNAME is not set — city detection is disabled. ' +
-                    'Register at https://www.geonames.org/login and add the username to your .env file.',
-            );
-            return;
-        }
-
-        try {
-            cityLookupHandle = createCityLookup(geonamesUsername);
-        } catch (error) {
-            console.error('[CityLayer] Failed to create city lookup handle', error);
-            return;
-        }
-
-        pollIntervalId = setInterval(pollCameraPosition, CAMERA_POLL_INTERVAL_MS);
+        loadCityCatalog(DEFAULT_DATASET)
+            .then((cities) => {
+                if (isUnmounted) return;
+                // Sort by population descending so LOD slicing in
+                // useGlobeCityMarkers shows the most significant cities first.
+                const sortedByPopulation = [...cities].sort(
+                    (a, b) => (b.population ?? 0) - (a.population ?? 0),
+                );
+                cachedCities.value = sortedByPopulation;
+            })
+            .catch((error: unknown) => {
+                console.error('[CityLayer] Failed to load city catalog', error);
+            });
     });
 
     onBeforeUnmount(() => {
-        if (pollIntervalId !== null) clearInterval(pollIntervalId);
-        if (settleTimerId !== null) clearTimeout(settleTimerId);
+        isUnmounted = true;
     });
 
-    // ── Public API ──────────────────────────────────────────────────────────
-
     /**
-     * Returns the nearest city from the cache within `maxDistanceKm`, or
-     * `null` if none is close enough or no cities have been loaded yet.
-     * Intended to be called inside the raycaster `onHit` callback.
+     * Linear haversine scan. O(n) over 33k is sub-millisecond and only runs on
+     * click — no spatial index needed.
      */
-    function findNearestCity(lat: number, lng: number, maxDistanceKm?: number): City | null {
-        return cityLookupHandle?.findNearestCity(lat, lng, maxDistanceKm) ?? null;
+    function findNearestCity(lat: number, lng: number, maxDistanceKm = 50): City | null {
+        const cities = cachedCities.value;
+        if (cities.length === 0) return null;
+
+        const earthRadiusKm = 6371;
+        const targetLatRad = (lat * Math.PI) / 180;
+        const targetLngRad = (lng * Math.PI) / 180;
+
+        let bestCity: City | null = null;
+        let bestDistance = Infinity;
+
+        for (const city of cities) {
+            const cityLatRad = (city.lat * Math.PI) / 180;
+            const cityLngRad = (city.lng * Math.PI) / 180;
+            const deltaLat = cityLatRad - targetLatRad;
+            const deltaLng = cityLngRad - targetLngRad;
+            const haversine =
+                Math.sin(deltaLat / 2) ** 2 +
+                Math.cos(targetLatRad) * Math.cos(cityLatRad) * Math.sin(deltaLng / 2) ** 2;
+            const distanceKm = 2 * earthRadiusKm * Math.asin(Math.min(1, Math.sqrt(haversine)));
+            if (distanceKm < bestDistance) {
+                bestDistance = distanceKm;
+                bestCity = city;
+            }
+        }
+
+        return bestDistance <= maxDistanceKm ? bestCity : null;
     }
 
     return {
-        /** Reactive list of all cities currently held in the tile cache. */
         cachedCities,
         findNearestCity,
     };
