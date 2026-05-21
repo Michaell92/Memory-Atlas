@@ -27,7 +27,7 @@ export function useGlobeCamera(
 ): CameraControllerHandle {
     const {
         initialRadius = 3.2,
-        minRadius = 1.4,
+        minRadius = 1.05,
         maxRadius = 8,
         initialPhi = Math.PI / 2,
         minPhi = 0.15,

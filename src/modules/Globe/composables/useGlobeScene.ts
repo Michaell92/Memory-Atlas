@@ -20,8 +20,9 @@ import { onBeforeUnmount, onMounted, shallowRef, type Ref } from 'vue';
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
 import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
+import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
-import type { GlobeSceneHandle, GlobeSceneOptions } from '@/modules/Globe/types/globe.types';
+import type { EarthTextureHandle, GlobeSceneHandle, GlobeSceneOptions } from '@/modules/Globe/types/globe.types';
 
 /**
  * Boot the Globe stage. Single owner of the render loop.
@@ -128,29 +129,90 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         scene.background = new Color('#060914');
         const camera = new PerspectiveCamera(45, 1, 0.1, 200);
 
-        // ── Globe (placeholder material until textures arrive) ───────────
+        // ── Globe ──────────────────────────────────────────────────────────────
+        // The diffuse map is built in the background from world-atlas
+        // topojson; the planet renders with a flat blue ocean color until
+        // the texture resolves, then swaps in seamlessly.
+        // Shared sun direction — used by the globe shader patch, lights, and atmosphere.
+        const sunDirectionWorld = new Vector3(5, 3, 5).normalize();
+
         const globeGeometry = new SphereGeometry(radius, segments, segments);
         const globeMaterial = new MeshStandardMaterial({
             color: new Color('#1d3b8a'),
-            roughness: 0.75,
-            metalness: 0.05,
-            // Small emissive so bloom has something to grab onto pre-textures.
-            emissive: new Color('#0a1740'),
-            emissiveIntensity: 0.4,
+            roughness: 0.85,
+            metalness: 0.0,
         });
+
+        // Patch the standard material so the emissive contribution is only
+        // added on the night side. Without this, emissive is flat-additive
+        // everywhere and over-brightens the day hemisphere.
+        //
+        // Strategy: inject a `vSunFacing` varying (world-space dot of normal
+        // and sun direction) and multiply totalEmissiveRadiance by
+        // `1 - smoothstep(0, 0.35, vSunFacing)` — that's 1.0 deep in shadow,
+        // 0.0 in sunlight, soft cross-fade over the terminator band.
+        globeMaterial.onBeforeCompile = (shader) => {
+            shader.uniforms['uSunDirection'] = { value: sunDirectionWorld };
+            // Prepend declarations to both shaders.
+            shader.vertexShader = 'varying float vSunFacing;\nuniform vec3 uSunDirection;\n' + shader.vertexShader;
+            // Compute sun-facing per vertex in world space after the normal
+            // has been set up. `objectNormal` is available after `beginnormal_vertex`.
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <begin_vertex>',
+                `#include <begin_vertex>
+        vec3 worldNormalDirection = normalize(mat3(modelMatrix) * objectNormal);
+        vSunFacing = dot(worldNormalDirection, normalize(uSunDirection));`,
+            );
+            shader.fragmentShader = 'varying float vSunFacing;\n' + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+                'vec3 totalEmissiveRadiance = emissive;',
+                `vec3 totalEmissiveRadiance = emissive;
+        // Night-side gate: smoothly fade emissive to zero on the day side.
+        float nightEmissiveFactor = 1.0 - smoothstep(0.0, 1.3, vSunFacing);
+        totalEmissiveRadiance *= nightEmissiveFactor;`,
+            );
+        };
+
         const globe = new Mesh(globeGeometry, globeMaterial);
+        // SphereGeometry's UVs put the seam at x=0; rotate the mesh so the
+        // Atlantic (lng 0) sits at the front of the scene by default.
+        globe.rotation.y = -Math.PI / 2;
         scene.add(globe);
+
+        let earthTexture: EarthTextureHandle | null = null;
+        createEarthTexture({
+            width: 4096,
+            oceanColor: '#1d3b8a',
+            borderColor: '#ffffff',
+            borderWidth: 1.5,
+            resolution: '50m',
+        })
+            .then((handle) => {
+                earthTexture = handle;
+                globeMaterial.map = handle.texture;
+                // Reuse the same texture as an emissive map so the night side
+                // glows faintly with its own colors instead of going pitch
+                // black. Low emissiveIntensity keeps the day/night terminator
+                // clearly readable while ensuring the cartoony palette never
+                // disappears into shadow.
+                globeMaterial.emissiveMap = handle.texture;
+                globeMaterial.emissive = new Color('#ffffff');
+                globeMaterial.emissiveIntensity = 0.35;
+                globeMaterial.needsUpdate = true;
+            })
+            .catch((error) => {
+                console.error('[Globe] Failed to build Earth texture', error);
+            });
 
         // ── Lights ────────────────────────────────────────────────────────
         const sunLight = new PointLight(0xfff3d6, 2.8, 0, 0);
+        // Position matches sunDirectionWorld — both describe the same star.
         sunLight.position.set(5, 3, 5);
         scene.add(sunLight);
-        const ambientLight = new AmbientLight(0x4a5680, 0.35);
+        const ambientLight = new AmbientLight(0x6b7aa8, 0.55);
         scene.add(ambientLight);
 
         // ── Atmosphere (Fresnel rim glow + terminator highlight) ─────────
-        // Shares the sun direction with the PointLight above so the day side
-        // glows hot blue-white and the night side keeps a faint cyan whisper.
         const atmosphere = createAtmosphere({
             planetRadius: radius,
             scale: 1.04,
@@ -158,7 +220,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             nightColor: '#0a1a3a',
             fresnelPower: 6.0,
             intensity: 1.2,
-            sunDirection: new Vector3(5, 3, 5).normalize(),
+            sunDirection: sunDirectionWorld,
         });
         scene.add(atmosphere.object);
 
@@ -241,6 +303,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 starfield.dispose();
                 cosmicPhenomena.dispose();
                 atmosphere.dispose();
+                earthTexture?.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();
                 globeGeometry.dispose();
