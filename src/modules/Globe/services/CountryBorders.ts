@@ -1,4 +1,7 @@
-import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineSegments } from 'three';
+import { Vector2 } from 'three';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { mesh } from 'topojson-client';
 import type { GeometryCollection } from 'topojson-specification';
 import type { MultiLineString } from 'geojson';
@@ -8,17 +11,18 @@ import type { CountryBordersHandle, CountryBordersOptions } from '@/modules/Glob
 
 /**
  * Loads world-atlas topojson and converts every country border arc into a
- * Three.js LineSegments object sitting just above the globe surface.
+ * Three.js LineSegments2 object sitting just above the globe surface.
  *
- * Because these are true 3D line primitives, they render at native display
- * resolution regardless of how far the camera is zoomed in — no texture
- * blurring at close range.
+ * Uses LineMaterial (screen-space line width) so borders render at a constant
+ * pixel width regardless of camera zoom — identical quality at radius 1.05 or 8.
+ * This is the "vector" approach: geometry lives in 3D world space, width is
+ * resolved in screen space per frame by the GPU shader.
  *
- * Note: WebGL restricts LineBasicMaterial.linewidth to 1 on most platforms.
- * This is fine; 1px crisp borders look sharp at all zoom levels.
+ * Call setResolution(w, h) whenever the renderer resizes to keep LineMaterial's
+ * resolution uniform in sync (required for correct screen-space width math).
  */
 export async function createCountryBorders(options: CountryBordersOptions = {}): Promise<CountryBordersHandle> {
-    const { globeRadius = 1, resolution = '50m', color = '#ffffff', opacity = 0.55 } = options;
+    const { globeRadius = 1, resolution = '50m', color = '#aac4dd', opacity = 0.9, linewidth = 1.2 } = options;
 
     const topology = await loadTopology(resolution);
     const countriesObject = topology.objects['countries'] as GeometryCollection;
@@ -50,7 +54,7 @@ export async function createCountryBorders(options: CountryBordersOptions = {}):
         for (let segmentIndex = 0; segmentIndex < ring.length - 1; segmentIndex++) {
             const [lng1, lat1] = ring[segmentIndex]!;
             const [lng2, lat2] = ring[segmentIndex + 1]!;
-
+            if (lng1 == null || lat1 == null || lng2 == null || lat2 == null) continue;
             const latRad1 = lat1 * DEG_TO_RAD;
             const lngRad1 = lng1 * DEG_TO_RAD;
             const cosLat1 = Math.cos(latRad1);
@@ -67,20 +71,26 @@ export async function createCountryBorders(options: CountryBordersOptions = {}):
         }
     }
 
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
 
-    const material = new LineBasicMaterial({
+    const material = new LineMaterial({
         color,
+        linewidth, // pixels, screen-space — constant at all zoom levels
         transparent: true,
         opacity,
+        resolution: new Vector2(window.innerWidth, window.innerHeight),
+        worldUnits: false, // screen-space pixel width, not world units
     });
 
-    const lineSegments = new LineSegments(geometry, material);
+    const lineSegments = new LineSegments2(geometry, material);
     lineSegments.name = 'CountryBorders';
 
     return {
         object: lineSegments,
+        setResolution: (width: number, height: number) => {
+            material.resolution.set(width, height);
+        },
         dispose: () => {
             geometry.dispose();
             material.dispose();

@@ -1,4 +1,14 @@
-import type { CanvasTexture, Mesh, PerspectiveCamera, Points, Scene, Spherical, Vector3, WebGLRenderer } from 'three';
+import type {
+    CanvasTexture,
+    LineSegments,
+    Mesh,
+    PerspectiveCamera,
+    Points,
+    Scene,
+    Spherical,
+    Vector3,
+    WebGLRenderer,
+} from 'three';
 
 export interface GlobeHitResult {
     /** Latitude in degrees, [-90, 90]. */
@@ -176,15 +186,19 @@ export interface CountryBordersOptions {
     globeRadius?: number;
     /** Topology resolution. Default '50m'. */
     resolution?: '110m' | '50m' | '10m';
-    /** CSS-compatible border color. Default '#ffffff'. */
+    /** CSS-compatible border color. Default '#aac4dd'. */
     color?: string;
-    /** Line opacity 0-1. Default 0.55. */
+    /** Line opacity 0-1. Default 0.9. */
     opacity?: number;
+    /** Screen-space line width in pixels. Default 1.2. */
+    linewidth?: number;
 }
 
 export interface CountryBordersHandle {
-    /** The LineSegments object to add to your scene. */
-    object: import('three').LineSegments;
+    /** The LineSegments2 object to add to your scene. */
+    object: import('three/addons/lines/LineSegments2.js').LineSegments2;
+    /** Must be called on every renderer resize to keep screen-space width correct. */
+    setResolution: (width: number, height: number) => void;
     /** Release GPU resources. Idempotent. */
     dispose: () => void;
 }
@@ -204,5 +218,27 @@ export interface CountrySymbolsHandle {
     /** The Group containing all country symbol Sprites. Add to your scene. */
     object: import('three').Group;
     /** Dispose all sprite materials and textures. Idempotent. */
+    dispose: () => void;
+}
+
+export interface ShootingStarsOptions {
+    /** Radius of the celestial sphere where stars spawn. Default 76. */
+    radius?: number;
+    /** Minimum seconds between consecutive shots from the same slot. Default 15. */
+    minIntervalSeconds?: number;
+    /** Maximum seconds between consecutive shots from the same slot. Default 28. */
+    maxIntervalSeconds?: number;
+    /** Number of stars that can be in-flight simultaneously. Default 3. */
+    maxConcurrent?: number;
+    /** Travel speed in world-units per second. Higher = faster. Default 400. */
+    speed?: number;
+}
+
+export interface ShootingStarsHandle {
+    /** The Points object to add to your scene. */
+    object: Points;
+    /** Drive star movement — call once per frame with scene elapsed and delta seconds. */
+    update: (elapsedSeconds: number, deltaSeconds: number) => void;
+    /** Release GPU resources. Idempotent. */
     dispose: () => void;
 }

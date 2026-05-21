@@ -44,6 +44,13 @@ export function useGlobeCamera(
     // Angular velocity (rad/sec) and radial velocity (units/sec).
     const angularVelocity = { theta: 0, phi: 0, radius: 0 };
 
+    // Raw desired velocity from pointer input — actual angularVelocity lerps toward
+    // this each frame to low-pass-filter hand jitter while keeping intentional drags crisp.
+    const targetAngularVelocity = { theta: 0, phi: 0 };
+
+    // Higher = snappier response; lower = more buttery smoothing.
+    const inputSmoothing = 14;
+
     let autoRotateEnabled = true;
     let isDragging = false;
     let activePointerId: number | null = null;
@@ -71,6 +78,8 @@ export function useGlobeCamera(
             // Kill residual inertia on grab — feels more deliberate.
             angularVelocity.theta = 0;
             angularVelocity.phi = 0;
+            targetAngularVelocity.theta = 0;
+            targetAngularVelocity.phi = 0;
         } else if (trackedPointers.size === 2) {
             isDragging = false;
             const positions = Array.from(trackedPointers.values());
@@ -103,9 +112,15 @@ export function useGlobeCamera(
         const movementY = event.clientY - lastPointerPosition.y;
         lastPointerPosition.set(event.clientX, event.clientY);
 
-        // Drive velocity, not position. Damping later produces the inertia feel.
-        angularVelocity.theta = -movementX * rotateSpeed * 60;
-        angularVelocity.phi = -movementY * rotateSpeed * 60;
+        // Scale rotation speed proportionally to zoom distance so panning feels
+        // consistent: close-up (small radius) moves slowly and precisely;
+        // far out (large radius) sweeps quickly.
+        const zoomScaleFactor = spherical.radius / initialRadius;
+
+        // Write to target — the update loop lerps actual velocity toward this,
+        // low-pass-filtering out hand jitter without dulling intentional sweeps.
+        targetAngularVelocity.theta = -movementX * rotateSpeed * 60 * zoomScaleFactor;
+        targetAngularVelocity.phi = -movementY * rotateSpeed * 60 * zoomScaleFactor;
     }
 
     function onPointerEnd(event: PointerEvent) {
@@ -113,6 +128,9 @@ export function useGlobeCamera(
         if (event.pointerId === activePointerId) {
             isDragging = false;
             activePointerId = null;
+            // Stop feeding new target so inertia decays naturally from current velocity.
+            targetAngularVelocity.theta = 0;
+            targetAngularVelocity.phi = 0;
         }
         if (trackedPointers.size < 2) lastPinchDistance = 0;
     }
@@ -141,6 +159,23 @@ export function useGlobeCamera(
         // Frame-rate-independent exponential decay toward zero.
         const dampingFactor = Math.exp(-damping * deltaSeconds);
 
+        if (isDragging) {
+            // Low-pass filter: smoothly blend actual velocity toward the raw input target.
+            // Fast jitter (hand shake) decays before it reaches angularVelocity;
+            // slow intentional swipes pass through cleanly.
+            const inputBlendFactor = 1 - Math.exp(-inputSmoothing * deltaSeconds);
+            angularVelocity.theta = MathUtils.lerp(
+                angularVelocity.theta,
+                targetAngularVelocity.theta,
+                inputBlendFactor,
+            );
+            angularVelocity.phi = MathUtils.lerp(angularVelocity.phi, targetAngularVelocity.phi, inputBlendFactor);
+        } else {
+            // Released — decay naturally for inertia feel.
+            angularVelocity.theta *= dampingFactor;
+            angularVelocity.phi *= dampingFactor;
+        }
+
         if (autoRotateEnabled && !isDragging && Math.abs(angularVelocity.theta) < 0.001) {
             spherical.theta -= autoRotateSpeed * deltaSeconds;
         }
@@ -153,8 +188,6 @@ export function useGlobeCamera(
             maxRadius,
         );
 
-        angularVelocity.theta *= dampingFactor;
-        angularVelocity.phi *= dampingFactor;
         angularVelocity.radius *= dampingFactor;
 
         applyToCamera();

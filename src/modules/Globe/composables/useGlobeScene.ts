@@ -20,17 +20,17 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, type Ref } from 'vue';
 
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
 import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
-import { createCountryBorders } from '@/modules/Globe/services/CountryBorders';
 import { createCountrySymbols } from '@/modules/Globe/services/CountrySymbols';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
 import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
+import { createShootingStars } from '@/modules/Globe/services/ShootingStars';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
 import type {
-    CountryBordersHandle,
     CountrySymbolsHandle,
     EarthTextureHandle,
     GlobeSceneHandle,
     GlobeSceneOptions,
+    ShootingStarsHandle,
 } from '@/modules/Globe/types/globe.types';
 
 /**
@@ -84,6 +84,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
     let cameraController: ReturnType<typeof useGlobeCamera> | null = null;
     let starfieldUpdate: ((elapsedSeconds: number) => void) | null = null;
     let cosmicPhenomenaUpdate: ((elapsedSeconds: number, deltaSeconds: number) => void) | null = null;
+    let shootingStarsUpdate: ((elapsedSeconds: number, deltaSeconds: number) => void) | null = null;
     let fpsStats: Stats | null = null;
     let sunSyncIntervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -110,6 +111,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         cameraController.update(deltaSeconds);
         starfieldUpdate?.(elapsedSeconds);
         cosmicPhenomenaUpdate?.(elapsedSeconds, deltaSeconds);
+        shootingStarsUpdate?.(elapsedSeconds, deltaSeconds);
         effectComposer.render(deltaSeconds);
         fpsStats?.end();
 
@@ -130,6 +132,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         starfieldUpdate = null;
         cosmicPhenomenaUpdate = null;
         fpsStats = null;
+        shootingStarsUpdate = null;
         if (sunSyncIntervalId !== null) {
             clearInterval(sunSyncIntervalId);
             sunSyncIntervalId = null;
@@ -188,14 +191,12 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         scene.add(globe);
 
         let earthTexture: EarthTextureHandle | null = null;
-        let countryBorders: CountryBordersHandle | null = null;
         let countrySymbols: CountrySymbolsHandle | null = null;
 
         createEarthTexture({
-            width: 4096,
+            width: 8192,
             oceanColor: '#1d3b8a',
-            borderColor: '#ffffff',
-            borderWidth: 1.5,
+            borderWidth: 0,
             resolution: '50m',
         })
             .then((handle) => {
@@ -206,20 +207,6 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 globeMaterial.emissiveIntensity = 0.46;
                 globeMaterial.needsUpdate = true;
                 isEarthReady.value = true;
-
-                // Start borders and symbols only after the earth texture is painted.
-                // By this point TopoLoader has the topology cached in memory, so
-                // both calls skip the network + JSON.parse and only pay for their
-                // own compute work — and that work is spread across frames instead
-                // of all three services firing in one synchronous CPU burst.
-                createCountryBorders({ globeRadius: radius, resolution: '50m' })
-                    .then((bordersHandle) => {
-                        countryBorders = bordersHandle;
-                        scene.add(bordersHandle.object);
-                    })
-                    .catch((error) => {
-                        console.error('[Globe] Failed to build country borders', error);
-                    });
 
                 createCountrySymbols({ globeRadius: radius, resolution: '50m' })
                     .then((symbolsHandle) => {
@@ -292,6 +279,11 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         scene.add(cosmicPhenomena.object);
         cosmicPhenomenaUpdate = cosmicPhenomena.update;
 
+        // ── Shooting stars ────────────────────────────────────────────────
+        const shootingStars = createShootingStars(camera, { radius: 76 });
+        scene.add(shootingStars.object);
+        shootingStarsUpdate = shootingStars.update;
+
         // ── Postprocessing ────────────────────────────────────────────────
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
@@ -347,8 +339,8 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 starfield.dispose();
                 cosmicPhenomena.dispose();
                 atmosphere.dispose();
+                shootingStars.dispose();
                 earthTexture?.dispose();
-                countryBorders?.dispose();
                 countrySymbols?.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();

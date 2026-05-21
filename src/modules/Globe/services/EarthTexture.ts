@@ -104,13 +104,23 @@ export async function createEarthTexture(options: EarthTextureOptions = {}): Pro
             context!.fill();
         }
 
-        // Borders — one mesh draw so shared edges stroke once.
-        context!.strokeStyle = borderColor;
-        context!.lineWidth = borderWidth;
-        context!.lineJoin = 'round';
-        context!.beginPath();
-        pathRenderer(bordersMesh);
-        context!.stroke();
+        // Borders — skipped when borderWidth is 0 (3D CountryBorders handles this).
+        if (borderWidth > 0) {
+            context!.lineJoin = 'round';
+            context!.lineCap = 'round';
+
+            context!.strokeStyle = borderColor;
+            context!.lineWidth = borderWidth;
+            context!.beginPath();
+            pathRenderer(bordersMesh);
+            context!.stroke();
+
+            context!.strokeStyle = 'rgba(255,255,255,0.25)';
+            context!.lineWidth = borderWidth * 0.4;
+            context!.beginPath();
+            pathRenderer(bordersMesh);
+            context!.stroke();
+        }
     }
 
     drawBaseMap();
