@@ -4,7 +4,7 @@ import type { Memory } from '@/modules/Memory/types/memory.types';
  * Demo seed memories. Replaced once persistence is wired up.
  * Country codes are world-atlas numeric ISO ids.
  */
-export const seedMemories: Memory[] = [
+export const seedMemories: Array<Omit<Memory, 'ownerUserId'>> = [
     {
         id: 'mem-pl-001',
         title: 'Krakow Adventure',

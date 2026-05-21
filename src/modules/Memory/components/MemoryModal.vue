@@ -114,9 +114,9 @@ const visibleMemories = computed(() => {
     const scope = currentScope.value;
     if (!scope) return [];
     if (scope.kind === 'city') {
-        return memoryStore.memoriesByCity(scope.cityId);
+        return memoryStore.memoriesByCityScope(scope.cityId, scope.cityName, scope.countryCode, scope.countryName);
     }
-    return memoryStore.memoriesByCountry(scope.countryCode);
+    return memoryStore.memoriesByCountry(scope.countryCode, scope.countryName);
 });
 
 const memoryCount = computed(() => visibleMemories.value.length);
@@ -124,7 +124,7 @@ const memoryCount = computed(() => visibleMemories.value.length);
 const citiesInCountry = computed(() => {
     const scope = currentScope.value;
     if (!scope || scope.kind !== 'country') return [];
-    return memoryStore.citiesWithMemoriesInCountry(scope.countryCode);
+    return memoryStore.citiesWithMemoriesInCountry(scope.countryCode, scope.countryName);
 });
 
 const modalAriaLabel = computed(() => {

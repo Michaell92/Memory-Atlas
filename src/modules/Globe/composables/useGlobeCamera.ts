@@ -32,7 +32,7 @@ export function useGlobeCamera(
         initialPhi = Math.PI / 2,
         minPhi = 0.15,
         maxPhi = Math.PI - 0.15,
-        rotateSpeed = 0.005,
+        rotateSpeed = 0.01,
         zoomSpeed = 0.0015,
         damping = 4.5,
         autoRotateSpeed = 0.03,
@@ -141,12 +141,12 @@ export function useGlobeCamera(
         // Write to target — the update loop lerps actual velocity toward this,
         // low-pass-filtering out hand jitter without dulling intentional sweeps.
         targetAngularVelocity.theta = MathUtils.clamp(
-            -movementX * rotateSpeed * 60 * zoomScaleFactor,
+            -movementX * rotateSpeed * 120 * zoomScaleFactor,
             -angularVelocityCap,
             angularVelocityCap,
         );
         targetAngularVelocity.phi = MathUtils.clamp(
-            -movementY * rotateSpeed * 60 * zoomScaleFactor,
+            -movementY * rotateSpeed * 120 * zoomScaleFactor,
             -angularVelocityCap,
             angularVelocityCap,
         );

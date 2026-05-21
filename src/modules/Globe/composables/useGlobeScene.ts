@@ -16,7 +16,7 @@ import {
 import Stats from 'three/addons/libs/stats.module.js';
 import { BloomEffect, EffectComposer, EffectPass, RenderPass } from 'postprocessing';
 import gsap from 'gsap';
-import { onBeforeUnmount, onMounted, ref, shallowRef, type Ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch, type Ref } from 'vue';
 
 import { useGlobeCamera } from '@/modules/Globe/composables/useGlobeCamera';
 import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
@@ -26,6 +26,8 @@ import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena'
 import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
 import { createShootingStars } from '@/modules/Globe/services/ShootingStars';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
+import { useUserStore } from '@/modules/User/stores/userStore';
+import type { UserThemePalette } from '@/modules/User/types/user.types';
 import type {
     CountryMeshesHandle,
     CountrySymbolsHandle,
@@ -69,6 +71,7 @@ const SUN_DISTANCE = 100;
 
 export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>, options: GlobeSceneOptions = {}) {
     const { radius = 1, segments = 64, showStats = import.meta.env.DEV, bloom = true } = options;
+    const userStore = useUserStore();
 
     const globeSceneHandle = shallowRef<GlobeSceneHandle | null>(null);
     const isEarthReady = ref(false);
@@ -86,6 +89,32 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
     let shootingStarsUpdate: ((elapsedSeconds: number, deltaSeconds: number) => void) | null = null;
     let fpsStats: Stats | null = null;
     let sunSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+    let sceneRef: Scene | null = null;
+    let rendererRef: WebGLRenderer | null = null;
+    let globeMaterialRef: MeshStandardMaterial | null = null;
+    let sunLightRef: DirectionalLight | null = null;
+    let ambientLightRef: AmbientLight | null = null;
+    let atmosphereMaterialRef: ShaderMaterial | null = null;
+
+    function applyThemePalette(themePalette: UserThemePalette, brightness: number): void {
+        if (!sceneRef || !globeMaterialRef || !sunLightRef || !ambientLightRef || !atmosphereMaterialRef) return;
+
+        sceneRef.background = new Color(themePalette.globe.background);
+        globeMaterialRef.color.set(themePalette.globe.globeColor);
+        globeMaterialRef.emissive.set(themePalette.globe.globeEmissive);
+        globeMaterialRef.needsUpdate = true;
+
+        ambientLightRef.color.set(themePalette.globe.ambientLight);
+        sunLightRef.color.set(themePalette.globe.sunLight);
+        sunLightRef.intensity = 4.2 * brightness;
+
+        atmosphereMaterialRef.uniforms['uDayColor']!.value.set(themePalette.globe.atmosphereColor);
+        atmosphereMaterialRef.uniforms['uNightColor']!.value.set(themePalette.globe.atmosphereNightColor);
+
+        if (rendererRef) {
+            rendererRef.toneMappingExposure = 1.1 + (brightness - 1) * 0.18;
+        }
+    }
 
     function handleResize(canvas: HTMLCanvasElement) {
         const currentHandle = globeSceneHandle.value;
@@ -147,7 +176,21 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             clearInterval(sunSyncIntervalId);
             sunSyncIntervalId = null;
         }
+        sceneRef = null;
+        rendererRef = null;
+        globeMaterialRef = null;
+        sunLightRef = null;
+        ambientLightRef = null;
+        atmosphereMaterialRef = null;
     }
+
+    watch(
+        [() => userStore.currentThemePalette, () => userStore.currentBrightness],
+        ([themePalette, brightness]) => {
+            applyThemePalette(themePalette, brightness);
+        },
+        { immediate: true },
+    );
 
     onMounted(() => {
         const canvas = canvasRef.value;
@@ -166,10 +209,12 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         renderer.outputColorSpace = SRGBColorSpace;
         renderer.toneMapping = ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.1;
+        rendererRef = renderer;
 
         // ── Scene & camera ────────────────────────────────────────────────
         const scene = new Scene();
-        scene.background = new Color('#060914');
+        scene.background = new Color(userStore.currentThemePalette.globe.background);
+        sceneRef = scene;
         const camera = new PerspectiveCamera(45, 1, 0.001, 200);
 
         // ── Globe ──────────────────────────────────────────────────────────────
@@ -177,12 +222,13 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
         const globeGeometry = new SphereGeometry(radius, segments, segments);
         const globeMaterial = new MeshStandardMaterial({
-            color: new Color('#2f7df6'),
-            emissive: new Color('#1b56cf'),
+            color: new Color(userStore.currentThemePalette.globe.globeColor),
+            emissive: new Color(userStore.currentThemePalette.globe.globeEmissive),
             emissiveIntensity: 0.45,
             roughness: 0.75,
             metalness: 0.0,
         });
+        globeMaterialRef = globeMaterial;
 
         globeMaterial.onBeforeCompile = (shader) => {
             shader.fragmentShader = shader.fragmentShader.replace(
@@ -227,25 +273,31 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             });
 
         // ── Lights ────────────────────────────────────────────────────────
-        const sunLight = new DirectionalLight(0xfff3d6, 4.2);
+        const sunLight = new DirectionalLight(
+            userStore.currentThemePalette.globe.sunLight,
+            4.2 * userStore.currentBrightness,
+        );
         sunLight.position.copy(sunDirectionWorld).multiplyScalar(SUN_DISTANCE);
         sunLight.target.position.set(0, 0, 0);
         scene.add(sunLight);
         scene.add(sunLight.target);
-        const ambientLight = new AmbientLight(0x6b7aa8, 0.28);
+        sunLightRef = sunLight;
+        const ambientLight = new AmbientLight(userStore.currentThemePalette.globe.ambientLight, 0.28);
         scene.add(ambientLight);
+        ambientLightRef = ambientLight;
 
         // ── Atmosphere (Fresnel rim glow + terminator highlight) ─────────
         const atmosphere = createAtmosphere({
             planetRadius: radius,
             scale: 1.04,
-            color: '#5aa9ff',
-            nightColor: '#0a1a3a',
+            color: userStore.currentThemePalette.globe.atmosphereColor,
+            nightColor: userStore.currentThemePalette.globe.atmosphereNightColor,
             fresnelPower: 6.0,
             intensity: 1.2,
             sunDirection: sunDirectionWorld,
         });
         scene.add(atmosphere.object);
+        atmosphereMaterialRef = atmosphere.object.material as ShaderMaterial;
 
         // ── Real-time sun position ────────────────────────────────────────────
         const atmosphereSunUniform = (atmosphere.object.material as ShaderMaterial).uniforms['uSunDirection']!
@@ -261,6 +313,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
         updateSunPosition();
         sunSyncIntervalId = setInterval(updateSunPosition, 60_000);
+        applyThemePalette(userStore.currentThemePalette, userStore.currentBrightness);
 
         // ── Starfield ─────────────────────────────────────────────────────
         const starfield = createStarfield({

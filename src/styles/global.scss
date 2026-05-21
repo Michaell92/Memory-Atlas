@@ -1,6 +1,18 @@
 @use 'variables' as *;
 @use 'mixins' as *;
 
+:root {
+  --app-background-start: #0b1230;
+  --app-background-mid: #060914;
+  --app-background-end: #02030a;
+  --theme-surface: rgba(8, 18, 36, 0.82);
+  --theme-surface-border: rgba(126, 247, 192, 0.22);
+  --theme-accent: #7ef7c0;
+  --theme-accent-soft: rgba(126, 247, 192, 0.16);
+  --theme-text: #eefbff;
+  --theme-text-muted: #95b8ca;
+}
+
 // ── Reset ─────────────────────────────────────────────────────────────
 *,
 *::before,
@@ -27,17 +39,17 @@ html {
 body {
   font-family: $font-body;
   font-size: $font-size-base;
-  color: $color-text;
-  background: $color-void;
+  color: var(--theme-text);
+  background: var(--app-background-end);
   overflow: hidden; // globe stage owns the viewport
 }
 
 a {
-  color: $color-aurora;
+  color: var(--theme-accent);
   text-decoration: none;
 
   &:hover {
-    @include text-glow($color-aurora);
+    text-shadow: 0 0 0.75rem color-mix(in srgb, var(--theme-accent) 65%, transparent);
   }
 }
 

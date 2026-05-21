@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 
+import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import type { MemoryScope } from '@/modules/Memory/types/memory.types';
 
 /**
@@ -17,11 +18,26 @@ function openAtCountry(countryCode: string, countryName: string): void {
 }
 
 function openAtCity(cityId: string, cityName: string, countryCode: string, countryName: string): void {
-    currentScope.value = { kind: 'city', cityId, cityName, countryCode, countryName };
+    const memoryStore = useMemoryStore();
+    const resolvedCity = memoryStore.resolveMemoryCity(cityId, cityName, countryCode, countryName);
+
+    currentScope.value = {
+        kind: 'city',
+        cityId: resolvedCity.cityId,
+        cityName: resolvedCity.cityName,
+        countryCode,
+        countryName,
+    };
 }
 
 function close(): void {
     currentScope.value = null;
+}
+
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+        currentScope.value = null;
+    });
 }
 
 /** Drill from country down into a specific city while modal stays open. */

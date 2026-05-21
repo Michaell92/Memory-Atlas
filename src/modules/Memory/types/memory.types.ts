@@ -5,11 +5,13 @@
  */
 export interface Memory {
     id: string;
+    /** Owning user id. Used to separate local accounts. */
+    ownerUserId: string;
     /** Personal name for the memory, e.g. "Krakow Adventure". */
     title: string;
     /** 1\u20135 stars, or 0 if unrated. */
     rating: number;
-    /** ISO 3166-1 numeric country code (matches world-atlas topology ids). */
+    /** Country identity key. Currently numeric from globe clicks or alpha-2 from user search. */
     countryCode: string;
     /** Display name of the country at the time the memory was created. */
     countryName: string;
