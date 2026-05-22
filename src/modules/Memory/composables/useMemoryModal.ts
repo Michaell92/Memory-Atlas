@@ -14,8 +14,14 @@ import type { MemoryScope } from '@/modules/Memory/types/memory.types';
 const currentScope = ref<MemoryScope | null>(null);
 const isOpen = computed(() => currentScope.value !== null);
 
-function openAtCountry(countryCode: string, countryName: string, latitude?: number, longitude?: number): void {
-    currentScope.value = { kind: 'country', countryCode, countryName, latitude, longitude };
+function openAtCountry(
+    countryCode: string,
+    countryName: string,
+    latitude?: number,
+    longitude?: number,
+    access: 'locked' | 'unlocked' = 'unlocked',
+): void {
+    currentScope.value = { kind: 'country', access, countryCode, countryName, latitude, longitude };
 }
 
 function openAtCity(
@@ -75,6 +81,7 @@ function escalateToCountry(): void {
     if (!scope || scope.kind === 'country') return;
     currentScope.value = {
         kind: 'country',
+        access: 'unlocked',
         countryCode: scope.countryCode,
         countryName: scope.countryName,
         latitude: scope.latitude,

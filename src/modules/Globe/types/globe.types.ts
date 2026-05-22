@@ -37,6 +37,7 @@ export interface GlobeSceneHandle {
     camera: PerspectiveCamera;
     renderer: WebGLRenderer;
     globe: Mesh;
+    countryMeshes: Group | null;
     /** Stop the RAF loop and dispose GPU resources. Idempotent. */
     dispose: () => void;
 }

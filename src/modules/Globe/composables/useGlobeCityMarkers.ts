@@ -10,7 +10,6 @@ import {
     Raycaster,
     Sprite,
     SpriteMaterial,
-    Vector2,
     Vector3,
 } from 'three';
 import { onBeforeUnmount, onMounted, watch, type Ref } from 'vue';
@@ -211,7 +210,7 @@ function disposeLabelSprite(labelSprite: Sprite): void {
 export function useGlobeCityMarkers(
     globeSceneHandleRef: Readonly<Ref<GlobeSceneHandle | null>>,
     cachedCitiesRef: Readonly<Ref<readonly City[]>>,
-    canvasRef: Readonly<Ref<HTMLCanvasElement | null>>,
+    _canvasRef: Readonly<Ref<HTMLCanvasElement | null>>,
 ): { getIntersectedCity: (raycaster: Raycaster) => City | null } {
     // ── Dot points state ──────────────────────────────────────────────────────
     // One Points object covers all city dots in a single draw call. Allocated
@@ -241,10 +240,6 @@ export function useGlobeCityMarkers(
     const reusableLabelPosition = new Vector3();
     const reusableProjectedLabelPosition = new Vector3();
     const reusableCameraDirection = new Vector3();
-
-    // Reusable raycaster + NDC vector for the hover cursor check (mousemove path).
-    const hoverRaycaster = new Raycaster();
-    const hoverNdc = new Vector2();
 
     // ── Dot points lifecycle ──────────────────────────────────────────────────
 
@@ -524,21 +519,6 @@ export function useGlobeCityMarkers(
         return spriteToCity.get(hitSprite) ?? null;
     }
 
-    // ── Hover cursor ─────────────────────────────────────────────────────────
-
-    function handlePointerMove(event: PointerEvent): void {
-        const canvas = canvasRef.value;
-        const camera = globeSceneHandleRef.value?.camera;
-        if (!canvas || !camera) return;
-
-        const { left, top, width, height } = canvas.getBoundingClientRect();
-        hoverNdc.set(((event.clientX - left) / width) * 2 - 1, -((event.clientY - top) / height) * 2 + 1);
-        hoverRaycaster.setFromCamera(hoverNdc, camera);
-
-        const hoveredCity = getIntersectedCity(hoverRaycaster);
-        canvas.style.cursor = hoveredCity ? 'pointer' : '';
-    }
-
     // ── Watchers ──────────────────────────────────────────────────────────────
 
     watch(cachedCitiesRef, () => {
@@ -568,12 +548,10 @@ export function useGlobeCityMarkers(
 
     onMounted(() => {
         startLodLoop();
-        canvasRef.value?.addEventListener('pointermove', handlePointerMove);
     });
 
     onBeforeUnmount(() => {
         stopLodLoop();
-        canvasRef.value?.removeEventListener('pointermove', handlePointerMove);
         destroyDotPoints();
         dotGlowTexture?.dispose();
         dotGlowTexture = null;

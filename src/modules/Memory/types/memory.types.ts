@@ -31,7 +31,14 @@ export interface Memory {
 
 /** Scope passed to the Memory modal when it opens. */
 export type MemoryScope =
-    | { kind: 'country'; countryCode: string; countryName: string; latitude?: number; longitude?: number }
+    | {
+          kind: 'country';
+          access: 'locked' | 'unlocked';
+          countryCode: string;
+          countryName: string;
+          latitude?: number;
+          longitude?: number;
+      }
     | {
           kind: 'city';
           cityId: string;

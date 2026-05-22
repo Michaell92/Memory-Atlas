@@ -4,6 +4,7 @@ import {
     Color,
     DirectionalLight,
     Mesh,
+    MeshBasicMaterial,
     MeshStandardMaterial,
     PerspectiveCamera,
     Scene,
@@ -23,7 +24,6 @@ import { createAtmosphere } from '@/modules/Globe/services/Atmosphere';
 import { createCountryMeshes } from '@/modules/Globe/services/CountryMeshes';
 import { createCountrySymbols } from '@/modules/Globe/services/CountrySymbols';
 import { createCosmicPhenomena } from '@/modules/Globe/services/CosmicPhenomena';
-import { createEarthTexture } from '@/modules/Globe/services/EarthTexture';
 import { createShootingStars } from '@/modules/Globe/services/ShootingStars';
 import { createStarfield } from '@/modules/Globe/services/Starfield';
 import { useUserStore } from '@/modules/User/stores/userStore';
@@ -31,7 +31,6 @@ import type { UserThemePalette } from '@/modules/User/types/user.types';
 import type {
     CountryMeshesHandle,
     CountrySymbolsHandle,
-    EarthTextureHandle,
     GlobeSceneHandle,
     GlobeSceneOptions,
     ShootingStarsHandle,
@@ -68,6 +67,8 @@ function computeRealTimeSunDirection(date: Date): Vector3 {
 }
 
 const SUN_DISTANCE = 100;
+const SUN_ORB_DISTANCE = 3.6;
+const SUN_ORB_RADIUS = 0.14;
 
 export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>, options: GlobeSceneOptions = {}) {
     const { radius = 1, segments = 64, showStats = import.meta.env.DEV, bloom = true } = options;
@@ -93,6 +94,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
     let rendererRef: WebGLRenderer | null = null;
     let globeMaterialRef: MeshStandardMaterial | null = null;
     let sunLightRef: DirectionalLight | null = null;
+    let sunOrbMaterialRef: MeshBasicMaterial | null = null;
     let ambientLightRef: AmbientLight | null = null;
     let atmosphereMaterialRef: ShaderMaterial | null = null;
 
@@ -107,6 +109,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         ambientLightRef.color.set(themePalette.globe.ambientLight);
         sunLightRef.color.set(themePalette.globe.sunLight);
         sunLightRef.intensity = 4.2 * brightness;
+        sunOrbMaterialRef?.color.set(themePalette.globe.sunLight);
 
         atmosphereMaterialRef.uniforms['uDayColor']!.value.set(themePalette.globe.atmosphereColor);
         atmosphereMaterialRef.uniforms['uNightColor']!.value.set(themePalette.globe.atmosphereNightColor);
@@ -180,6 +183,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         rendererRef = null;
         globeMaterialRef = null;
         sunLightRef = null;
+        sunOrbMaterialRef = null;
         ambientLightRef = null;
         atmosphereMaterialRef = null;
     }
@@ -257,6 +261,9 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             .then((meshesHandle) => {
                 countryMeshes = meshesHandle;
                 scene.add(meshesHandle.object);
+                if (globeSceneHandle.value) {
+                    globeSceneHandle.value.countryMeshes = meshesHandle.object;
+                }
                 isEarthReady.value = true;
 
                 createCountrySymbols({ globeRadius: radius, resolution: '50m' })
@@ -282,6 +289,15 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         scene.add(sunLight);
         scene.add(sunLight.target);
         sunLightRef = sunLight;
+
+        const sunOrbGeometry = new SphereGeometry(SUN_ORB_RADIUS, 32, 32);
+        const sunOrbMaterial = new MeshBasicMaterial({ color: userStore.currentThemePalette.globe.sunLight });
+        const sunOrb = new Mesh(sunOrbGeometry, sunOrbMaterial);
+        sunOrb.position.copy(sunDirectionWorld).multiplyScalar(SUN_ORB_DISTANCE);
+        sunOrb.renderOrder = 2;
+        scene.add(sunOrb);
+        sunOrbMaterialRef = sunOrbMaterial;
+
         const ambientLight = new AmbientLight(userStore.currentThemePalette.globe.ambientLight, 0.28);
         scene.add(ambientLight);
         ambientLightRef = ambientLight;
@@ -307,6 +323,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             const sunDir = computeRealTimeSunDirection(new Date());
             sunDirectionWorld.copy(sunDir);
             sunLight.position.copy(sunDir).multiplyScalar(SUN_DISTANCE);
+            sunOrb.position.copy(sunDir).multiplyScalar(SUN_ORB_DISTANCE);
             sunLight.target.updateMatrixWorld();
             atmosphereSunUniform.copy(sunDir);
         }
@@ -391,6 +408,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             camera,
             renderer,
             globe,
+            countryMeshes: null,
             dispose: () => {
                 introTween.kill();
                 controller.dispose();
@@ -402,6 +420,8 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
                 countrySymbols?.dispose();
                 composer.dispose();
                 bloomEffect?.dispose();
+                sunOrbGeometry.dispose();
+                sunOrbMaterial.dispose();
                 globeGeometry.dispose();
                 globeMaterial.dispose();
                 renderer.dispose();

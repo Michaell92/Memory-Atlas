@@ -27,7 +27,7 @@
                 </article>
                 <article class="user-profile-section__stat-card">
                     <strong>{{ uniqueCountriesCount }}</strong>
-                    <span>Countries logged</span>
+                    <span>Countries unlocked</span>
                 </article>
                 <article class="user-profile-section__stat-card">
                     <strong>{{ uniqueCitiesCount }}</strong>

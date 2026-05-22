@@ -672,9 +672,9 @@ export async function createCountryMeshes(options: CountryMeshesOptions = {}): P
             // shader patch below — keeps land readable in shadow without washing
             // out the day side.
             emissive: fillColor,
-            emissiveIntensity: 0.35,
+            emissiveIntensity: 0.1,
             roughness: 0.9,
-            metalness: 0.0,
+            metalness: 0,
             // polygonOffset shifts fragments toward the camera in clip space,
             // accounting for triangle slope. This is the correct fix for z-fighting
             // between the country meshes and the ocean sphere: a world-space
@@ -691,7 +691,7 @@ export async function createCountryMeshes(options: CountryMeshesOptions = {}): P
                 `vec3 totalEmissiveRadiance = emissive;
         #if NUM_DIR_LIGHTS > 0
             float sunFacing = dot(normalize(vNormal), directionalLights[0].direction);
-            float nightEmissiveFactor = 1.0 - smoothstep(0.0, 1.3, sunFacing);
+            float nightEmissiveFactor = 0.2 - smoothstep(0.0, 1.3, sunFacing);
             totalEmissiveRadiance *= nightEmissiveFactor;
         #endif`,
             );

@@ -1,7 +1,7 @@
 import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping, SRGBColorSpace } from 'three';
 import { geoEquirectangular, geoPath } from 'd3-geo';
 import { feature, mesh } from 'topojson-client';
-import type { GeometryCollection, Topology } from 'topojson-specification';
+import type { GeometryCollection } from 'topojson-specification';
 import type { Feature, FeatureCollection, Geometry, MultiLineString } from 'geojson';
 
 import { loadTopology } from '@/modules/Globe/services/TopoLoader';

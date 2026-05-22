@@ -12,7 +12,7 @@
             >
                 <div class="memory-modal__backdrop" aria-hidden="true" />
 
-                <div class="memory-modal__panel">
+                <div class="memory-modal__panel" :class="panelClasses">
                     <header class="memory-modal__header">
                         <div class="memory-modal__breadcrumb">
                             <button
@@ -61,6 +61,16 @@
                     </header>
 
                     <div class="memory-modal__content">
+                        <section v-if="isLockedCountryScope" class="memory-modal__unlock-banner">
+                            <p class="memory-modal__unlock-eyebrow">Locked country</p>
+                            <h3 class="memory-modal__unlock-title">
+                                Add your first memory to unlock {{ currentScope.countryName }}
+                            </h3>
+                            <p class="memory-modal__unlock-copy">
+                                This country is still hidden in your atlas. Your first memory here unlocks it instantly.
+                            </p>
+                        </section>
+
                         <section
                             v-if="currentScope.kind === 'country' && citiesInCountry.length > 0"
                             class="memory-modal__cities"
@@ -90,7 +100,7 @@
                                     class="memory-modal__add"
                                     @click="openComposer"
                                 >
-                                    New memory
+                                    {{ isLockedCountryScope ? 'Unlock country' : 'New memory' }}
                                 </button>
                             </div>
 
@@ -148,13 +158,23 @@
                                     <button type="button" class="memory-modal__secondary-action" @click="closeComposer">
                                         Cancel
                                     </button>
-                                    <button type="submit" class="memory-modal__primary-action">Save memory</button>
+                                    <button type="submit" class="memory-modal__primary-action">
+                                        {{ primaryActionLabel }}
+                                    </button>
                                 </div>
                             </form>
 
                             <div v-if="visibleMemories.length === 0" class="memory-modal__empty">
-                                <p class="memory-modal__empty-title">No memories here yet</p>
-                                <p class="memory-modal__empty-sub">Click "New memory" above to capture your first.</p>
+                                <p class="memory-modal__empty-title">
+                                    {{ isLockedCountryScope ? 'This country is still locked' : 'No memories here yet' }}
+                                </p>
+                                <p class="memory-modal__empty-sub">
+                                    {{
+                                        isLockedCountryScope
+                                            ? 'Save the first memory above to unlock it on the globe.'
+                                            : 'Click "New memory" above to capture your first.'
+                                    }}
+                                </p>
                             </div>
 
                             <div v-else class="memory-modal__memory-list">
@@ -190,16 +210,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
+import { useCountryUnlockCelebration } from '@/modules/Globe/composables/useCountryUnlockCelebration';
 import MemoryCard from '@/modules/Memory/components/MemoryCard.vue';
 import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import { useUserStore } from '@/modules/User/stores/userStore';
 import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
-import { open } from 'fs';
 
 const memoryStore = useMemoryStore();
 const userStore = useUserStore();
 const { currentScope, isOpen, close, drillDownToCity, escalateToCountry } = useMemoryModal();
+const { triggerCelebration } = useCountryUnlockCelebration();
 const isComposerOpen = ref(false);
 const draftTitle = ref('');
 const draftVisitedAt = ref(new Date().toISOString().slice(0, 10));
@@ -220,6 +241,13 @@ const visibleMemories = computed(() => {
 });
 
 const memoryCount = computed(() => visibleMemories.value.length);
+const isLockedCountryScope = computed(
+    () => currentScope.value?.kind === 'country' && currentScope.value.access === 'locked',
+);
+const panelClasses = computed(() => ({
+    'memory-modal__panel--locked': isLockedCountryScope.value,
+}));
+const primaryActionLabel = computed(() => (isLockedCountryScope.value ? 'Save and unlock' : 'Save memory'));
 
 const citiesInCountry = computed(() => {
     const scope = currentScope.value;
@@ -236,7 +264,9 @@ const modalAriaLabel = computed(() => {
 });
 const canSetCurrentLocation = computed(() => {
     const scope = currentScope.value;
-    return !!scope && scope.latitude !== undefined && scope.longitude !== undefined;
+    if (!scope) return false;
+    if (scope.kind === 'country' && scope.access === 'locked') return false;
+    return scope.latitude !== undefined && scope.longitude !== undefined;
 });
 const isCurrentLocationSelected = computed(() => {
     const scope = currentScope.value;
@@ -273,6 +303,7 @@ function openComposer(): void {
 function saveDraftMemory(): void {
     const scope = currentScope.value;
     if (!scope) return;
+    const shouldUnlockCountry = scope.kind === 'country' && scope.access === 'locked' && memoryCount.value === 0;
 
     draftFeedbackMessage.value = '';
 
@@ -293,6 +324,14 @@ function saveDraftMemory(): void {
         visitedAt: draftVisitedAt.value,
     });
 
+    if (shouldUnlockCountry) {
+        currentScope.value = {
+            ...scope,
+            access: 'unlocked',
+        };
+        triggerCelebration(scope.countryCode, scope.countryName);
+    }
+
     closeComposer();
 }
 
@@ -300,6 +339,10 @@ function toggleCurrentLocation(event: Event): void {
     const target = event.target as HTMLInputElement;
     const scope = currentScope.value;
     if (!scope) return;
+    if (scope.kind === 'country' && scope.access === 'locked') {
+        target.checked = false;
+        return;
+    }
 
     if (!target.checked) {
         if (isCurrentLocationSelected.value) {
@@ -368,6 +411,10 @@ onUnmounted(() => {
 watch(currentScope, () => {
     closeComposer();
     cancelDelete();
+
+    if (currentScope.value?.kind === 'country' && currentScope.value.access === 'locked') {
+        isComposerOpen.value = true;
+    }
 });
 </script>
 
@@ -400,6 +447,69 @@ watch(currentScope, () => {
         box-shadow: 0 1rem 2rem rgba($color-void, 0.38);
         overflow: hidden;
         contain: layout paint;
+
+        &--locked {
+            border-color: rgba($color-memory, 0.34);
+            background:
+                radial-gradient(circle at top, rgba($color-memory, 0.18), transparent 34%), rgba($color-void, 0.98);
+            box-shadow:
+                0 1rem 2rem rgba($color-void, 0.42),
+                0 0 2.25rem rgba($color-memory, 0.16);
+
+            .memory-modal__header {
+                border-bottom-color: rgba($color-memory, 0.18);
+            }
+
+            .memory-modal__title {
+                @include text-glow($color-memory, 0.5rem);
+            }
+
+            .memory-modal__title-badge {
+                background: rgba($color-memory, 0.12);
+                color: $color-memory;
+            }
+
+            .memory-modal__composer {
+                border-color: rgba($color-memory, 0.18);
+                background: rgba($color-memory, 0.08);
+            }
+
+            .memory-modal__primary-action,
+            .memory-modal__add {
+                border-color: rgba($color-memory, 0.36);
+                background: linear-gradient(135deg, rgba($color-memory, 0.24), rgba($color-aurora, 0.16));
+                color: $color-text;
+            }
+        }
+    }
+
+    &__unlock-banner {
+        padding: 1rem 1.125rem;
+        border-radius: $radius-lg;
+        border: 1px solid rgba($color-memory, 0.22);
+        background:
+            linear-gradient(135deg, rgba($color-memory, 0.14), rgba($color-aurora, 0.06)), rgba($color-void, 0.44);
+    }
+
+    &__unlock-eyebrow {
+        margin: 0 0 0.375rem;
+        font-size: $font-size-xs;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $color-memory;
+    }
+
+    &__unlock-title {
+        margin: 0;
+        font-size: $font-size-lg;
+        color: $color-text;
+    }
+
+    &__unlock-copy {
+        margin: 0.375rem 0 0;
+        font-size: $font-size-sm;
+        color: $color-text-muted;
+        line-height: 1.5;
     }
 
     &__header {

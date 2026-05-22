@@ -46,6 +46,38 @@ export const useMemoryStore = defineStore('memory', () => {
             memories.value.filter((memory) => matchesCountry(memory, countryCode, countryName)),
     );
 
+    const isCountryUnlocked = computed(
+        () => (countryCode: string, countryName?: string) =>
+            memoriesByCountry.value(countryCode, countryName).length > 0,
+    );
+
+    const unlockedCountries = computed(() => {
+        const unlockedCountryMap = new Map<string, { countryCode: string; countryName: string; memoryCount: number }>();
+
+        for (const memory of memories.value) {
+            const countryKey = normalizeCountryKey(memory.countryName) || memory.countryCode;
+            const existingCountry = unlockedCountryMap.get(countryKey);
+
+            if (existingCountry) {
+                existingCountry.memoryCount += 1;
+                if (!existingCountry.countryCode && memory.countryCode) {
+                    existingCountry.countryCode = memory.countryCode;
+                }
+                continue;
+            }
+
+            unlockedCountryMap.set(countryKey, {
+                countryCode: memory.countryCode,
+                countryName: memory.countryName,
+                memoryCount: 1,
+            });
+        }
+
+        return Array.from(unlockedCountryMap.values()).sort((leftCountry, rightCountry) =>
+            leftCountry.countryName.localeCompare(rightCountry.countryName),
+        );
+    });
+
     const memoriesByCity = computed(
         () => (cityId: string) => memories.value.filter((memory) => memory.cityId === cityId),
     );
@@ -170,6 +202,8 @@ export const useMemoryStore = defineStore('memory', () => {
         memories,
         allMemories,
         memoriesByCountry,
+        isCountryUnlocked,
+        unlockedCountries,
         memoriesByCity,
         memoriesByCityScope,
         citiesWithMemoriesInCountry,
