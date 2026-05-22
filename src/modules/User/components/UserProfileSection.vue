@@ -133,10 +133,18 @@
                     @update-visited-at="updateVisitedAt"
                     @add-media="addMedia"
                     @remove-media="removeMedia"
-                    @delete="memoryStore.removeMemory"
+                    @delete="requestDelete"
                 />
             </div>
         </section>
+
+        <ConfirmDialog
+            :is-open="pendingDeleteMemoryId !== null"
+            title="Delete this memory?"
+            message="This action removes the memory and its local media from your profile."
+            @confirm="confirmDelete"
+            @cancel="cancelDelete"
+        />
     </section>
 </template>
 
@@ -148,6 +156,7 @@ import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import UserOptionSearch from '@/modules/User/components/UserOptionSearch.vue';
 import { loadCitySearchOptionsByCountry, loadCountrySearchOptions } from '@/modules/User/services/userLocationCatalog';
 import { useUserStore } from '@/modules/User/stores/userStore';
+import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
 import type { UserSearchOption } from '@/modules/User/types/user.types';
 
 const memoryStore = useMemoryStore();
@@ -167,6 +176,7 @@ const rating = ref(5);
 const notes = ref('');
 const feedbackMessage = ref('');
 const searchQuery = ref('');
+const pendingDeleteMemoryId = ref<string | null>(null);
 
 const ratingOptions = [5, 4, 3, 2, 1];
 
@@ -295,6 +305,20 @@ function addMedia(memoryId: string, mediaUrl: string): void {
 
 function removeMedia(memoryId: string, mediaUrl: string): void {
     memoryStore.removeMediaFromMemory(memoryId, mediaUrl);
+}
+
+function requestDelete(memoryId: string): void {
+    pendingDeleteMemoryId.value = memoryId;
+}
+
+function cancelDelete(): void {
+    pendingDeleteMemoryId.value = null;
+}
+
+function confirmDelete(): void {
+    if (!pendingDeleteMemoryId.value) return;
+    memoryStore.removeMemory(pendingDeleteMemoryId.value);
+    pendingDeleteMemoryId.value = null;
 }
 </script>
 

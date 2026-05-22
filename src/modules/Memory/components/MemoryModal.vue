@@ -84,10 +84,73 @@
                             <div class="memory-modal__memories-header">
                                 <h3 class="memory-modal__section-title">Memories</h3>
 
-                                <button type="button" class="memory-modal__add" @click="createBlankMemory">
-                                    + New memory
+                                <button
+                                    v-if="!isComposerOpen"
+                                    type="button"
+                                    class="memory-modal__add"
+                                    @click="openComposer"
+                                >
+                                    New memory
                                 </button>
                             </div>
+
+                            <form
+                                v-if="isComposerOpen"
+                                class="memory-modal__composer"
+                                @submit.prevent="saveDraftMemory"
+                            >
+                                <label class="memory-modal__field memory-modal__field--wide">
+                                    <span>Memory title</span>
+                                    <input
+                                        v-model="draftTitle"
+                                        type="text"
+                                        placeholder="Golden hour over the old city"
+                                    />
+                                </label>
+
+                                <label v-if="currentScope.kind === 'city'" class="memory-modal__field">
+                                    <span>City</span>
+                                    <input :value="currentScope.cityName" type="text" disabled />
+                                </label>
+
+                                <label class="memory-modal__field">
+                                    <span>Visited</span>
+                                    <input v-model="draftVisitedAt" type="date" />
+                                </label>
+
+                                <label class="memory-modal__field">
+                                    <span>Rating</span>
+                                    <select v-model.number="draftRating">
+                                        <option
+                                            v-for="ratingOption in ratingOptions"
+                                            :key="ratingOption"
+                                            :value="ratingOption"
+                                        >
+                                            {{ ratingOption }} star{{ ratingOption === 1 ? '' : 's' }}
+                                        </option>
+                                    </select>
+                                </label>
+
+                                <label class="memory-modal__field memory-modal__field--wide">
+                                    <span>Notes</span>
+                                    <textarea
+                                        v-model="draftNotes"
+                                        rows="4"
+                                        placeholder="What made this memory stick?"
+                                    />
+                                </label>
+
+                                <p v-if="draftFeedbackMessage" class="memory-modal__feedback">
+                                    {{ draftFeedbackMessage }}
+                                </p>
+
+                                <div class="memory-modal__composer-actions">
+                                    <button type="button" class="memory-modal__secondary-action" @click="closeComposer">
+                                        Cancel
+                                    </button>
+                                    <button type="submit" class="memory-modal__primary-action">Save memory</button>
+                                </div>
+                            </form>
 
                             <div v-if="visibleMemories.length === 0" class="memory-modal__empty">
                                 <p class="memory-modal__empty-title">No memories here yet</p>
@@ -114,19 +177,38 @@
             </div>
         </Transition>
     </Teleport>
+
+    <ConfirmDialog
+        :is-open="pendingDeleteMemoryId !== null"
+        title="Delete this memory?"
+        message="This action removes the memory and its local media from this traveler profile."
+        @confirm="confirmDelete"
+        @cancel="cancelDelete"
+    />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import MemoryCard from '@/modules/Memory/components/MemoryCard.vue';
 import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import { useUserStore } from '@/modules/User/stores/userStore';
+import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
+import { open } from 'fs';
 
 const memoryStore = useMemoryStore();
 const userStore = useUserStore();
 const { currentScope, isOpen, close, drillDownToCity, escalateToCountry } = useMemoryModal();
+const isComposerOpen = ref(false);
+const draftTitle = ref('');
+const draftVisitedAt = ref(new Date().toISOString().slice(0, 10));
+const draftRating = ref(5);
+const draftNotes = ref('');
+const draftFeedbackMessage = ref('');
+const pendingDeleteMemoryId = ref<string | null>(null);
+
+const ratingOptions = [5, 4, 3, 2, 1];
 
 const visibleMemories = computed(() => {
     const scope = currentScope.value;
@@ -171,21 +253,47 @@ const isCurrentLocationSelected = computed(() => {
     );
 });
 
-function createBlankMemory(): void {
+function resetComposer(): void {
+    draftTitle.value = '';
+    draftVisitedAt.value = new Date().toISOString().slice(0, 10);
+    draftRating.value = 5;
+    draftNotes.value = '';
+    draftFeedbackMessage.value = '';
+}
+
+function closeComposer(): void {
+    isComposerOpen.value = false;
+    resetComposer();
+}
+
+function openComposer(): void {
+    isComposerOpen.value = true;
+}
+
+function saveDraftMemory(): void {
     const scope = currentScope.value;
     if (!scope) return;
-    const today = new Date().toISOString().slice(0, 10);
+
+    draftFeedbackMessage.value = '';
+
+    if (draftTitle.value.trim().length < 2) {
+        draftFeedbackMessage.value = 'Give the memory a title.';
+        return;
+    }
+
     memoryStore.addMemory({
-        title: '',
-        rating: 0,
+        title: draftTitle.value.trim(),
+        rating: draftRating.value,
         countryCode: scope.countryCode,
         countryName: scope.countryName,
         cityId: scope.kind === 'city' ? scope.cityId : undefined,
         cityName: scope.kind === 'city' ? scope.cityName : undefined,
-        notes: '',
+        notes: draftNotes.value.trim(),
         media: [],
-        visitedAt: today,
+        visitedAt: draftVisitedAt.value,
     });
+
+    closeComposer();
 }
 
 function toggleCurrentLocation(event: Event): void {
@@ -231,7 +339,17 @@ function onRemoveMedia(memoryId: string, mediaUrl: string): void {
     memoryStore.removeMediaFromMemory(memoryId, mediaUrl);
 }
 function onDelete(memoryId: string): void {
-    memoryStore.removeMemory(memoryId);
+    pendingDeleteMemoryId.value = memoryId;
+}
+
+function cancelDelete(): void {
+    pendingDeleteMemoryId.value = null;
+}
+
+function confirmDelete(): void {
+    if (!pendingDeleteMemoryId.value) return;
+    memoryStore.removeMemory(pendingDeleteMemoryId.value);
+    pendingDeleteMemoryId.value = null;
 }
 
 // Global escape-to-close — the modal must close even when focus is in a deep
@@ -245,6 +363,11 @@ onMounted(() => {
 });
 onUnmounted(() => {
     window.removeEventListener('keydown', onGlobalKeydown);
+});
+
+watch(currentScope, () => {
+    closeComposer();
+    cancelDelete();
 });
 </script>
 
@@ -526,6 +649,98 @@ onUnmounted(() => {
         margin: 0;
         font-size: $font-size-sm;
         color: $color-text-muted;
+    }
+
+    &__composer {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: $radius-lg;
+        background: rgba($color-cosmic-dust, 0.22);
+        border: 1px solid rgba($color-aurora, 0.12);
+    }
+
+    &__field {
+        display: grid;
+        gap: 0.5rem;
+
+        span {
+            font-size: $font-size-xs;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: $color-text-muted;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            min-height: 3rem;
+            padding: 0.75rem 0.875rem;
+            border-radius: $radius-md;
+            border: 1px solid rgba($color-aurora, 0.14);
+            background: rgba($color-void, 0.45);
+            color: $color-text;
+            font: inherit;
+
+            &:focus {
+                outline: none;
+                border-color: rgba($color-aurora, 0.4);
+            }
+
+            &:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+            }
+        }
+
+        textarea {
+            min-height: 7rem;
+            resize: vertical;
+        }
+
+        &--wide {
+            grid-column: 1 / -1;
+        }
+    }
+
+    &__feedback {
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 0.75rem 0.875rem;
+        border-radius: $radius-md;
+        background: rgba(255, 90, 90, 0.12);
+        color: #ffd3d3;
+    }
+
+    &__composer-actions {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    &__secondary-action,
+    &__primary-action {
+        min-height: 2.75rem;
+        padding: 0 1rem;
+        border-radius: $radius-pill;
+        font: inherit;
+        cursor: pointer;
+    }
+
+    &__secondary-action {
+        border: 1px solid rgba($color-aurora, 0.2);
+        background: rgba($color-void, 0.5);
+        color: $color-text;
+    }
+
+    &__primary-action {
+        border: 1px solid rgba($color-aurora, 0.35);
+        background: linear-gradient(135deg, rgba($color-aurora, 0.24), rgba($color-atmosphere, 0.2));
+        color: $color-text;
     }
 
     &__memory-list {
