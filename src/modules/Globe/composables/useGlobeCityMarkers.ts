@@ -4,6 +4,7 @@ import {
     CanvasTexture,
     Float32BufferAttribute,
     Frustum,
+    MathUtils,
     Matrix4,
     Points,
     PointsMaterial,
@@ -54,7 +55,7 @@ const MARKER_DOT_SIZE_PX = 10;
  * Keep this only slightly above the dot radius so labels feel anchored to the
  * marker instead of drifting with noticeable parallax during rotation.
  */
-const LABEL_SURFACE_RADIUS = 1.008;
+const LABEL_SURFACE_RADIUS = 1.001;
 
 /** Canvas height (px) used when drawing label text. Width adapts to text. */
 const LABEL_CANVAS_HEIGHT = 32;
@@ -109,6 +110,33 @@ function resolveCityLod(cameraRadius: number): CityLodConfig {
         if (cameraRadius >= config.minCameraRadius) return config;
     }
     return CITY_LOD_CONFIGS[CITY_LOD_CONFIGS.length - 1]!;
+}
+
+/**
+ * Smoothly interpolates labelScaleHeight between adjacent LOD breakpoints so
+ * scale never snaps to a new value as the camera crosses a threshold.
+ */
+function resolveCityLabelScaleHeight(cameraRadius: number): number {
+    const configs = CITY_LOD_CONFIGS;
+    if (cameraRadius >= configs[0]!.minCameraRadius) return configs[0]!.labelScaleHeight;
+    const lastConfig = configs[configs.length - 1]!;
+    if (cameraRadius <= lastConfig.minCameraRadius) return lastConfig.labelScaleHeight;
+
+    for (let configIndex = 0; configIndex < configs.length - 1; configIndex++) {
+        const upperConfig = configs[configIndex]!;
+        const lowerConfig = configs[configIndex + 1]!;
+        if (cameraRadius >= lowerConfig.minCameraRadius) {
+            const interpolation = MathUtils.clamp(
+                (cameraRadius - lowerConfig.minCameraRadius) /
+                    (upperConfig.minCameraRadius - lowerConfig.minCameraRadius),
+                0,
+                1,
+            );
+            return MathUtils.lerp(lowerConfig.labelScaleHeight, upperConfig.labelScaleHeight, interpolation);
+        }
+    }
+
+    return lastConfig.labelScaleHeight;
 }
 
 /** The deepest tier — used to pre-allocate the dot position buffer once. */
@@ -445,7 +473,10 @@ export function useGlobeCityMarkers(
         syncDotPositions(visibleFocusedCities);
         ensureDotPoints().geometry.setDrawRange(0, visibleFocusedCities.length);
 
-        reconcileViewportLabels(visibleFocusedCities.slice(0, lodConfig.maxLabels), lodConfig.labelScaleHeight);
+        reconcileViewportLabels(
+            visibleFocusedCities.slice(0, lodConfig.maxLabels),
+            resolveCityLabelScaleHeight(cameraRadius),
+        );
     }
 
     function runLodFrame(): void {

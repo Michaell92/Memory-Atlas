@@ -37,6 +37,9 @@ import type {
     ShootingStarsHandle,
 } from '@/modules/Globe/types/globe.types';
 
+const DEFAULT_SUN_LIGHT_INTENSITY = 3.36;
+const DEFAULT_AMBIENT_LIGHT_INTENSITY = 0.224;
+
 /**
  * Computes the normalised world-space direction from the globe centre toward
  * the real-world sun for the given date/time.
@@ -106,7 +109,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
 
         ambientLightRef.color.set(themePalette.globe.ambientLight);
         sunLightRef.color.set(themePalette.globe.sunLight);
-        sunLightRef.intensity = 4.2 * brightness;
+        sunLightRef.intensity = DEFAULT_SUN_LIGHT_INTENSITY * brightness;
 
         atmosphereMaterialRef.uniforms['uDayColor']!.value.set(themePalette.globe.atmosphereColor);
         atmosphereMaterialRef.uniforms['uNightColor']!.value.set(themePalette.globe.atmosphereNightColor);
@@ -275,14 +278,17 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         // ── Lights ────────────────────────────────────────────────────────
         const sunLight = new DirectionalLight(
             userStore.currentThemePalette.globe.sunLight,
-            4.2 * userStore.currentBrightness,
+            DEFAULT_SUN_LIGHT_INTENSITY * userStore.currentBrightness,
         );
         sunLight.position.copy(sunDirectionWorld).multiplyScalar(SUN_DISTANCE);
         sunLight.target.position.set(0, 0, 0);
         scene.add(sunLight);
         scene.add(sunLight.target);
         sunLightRef = sunLight;
-        const ambientLight = new AmbientLight(userStore.currentThemePalette.globe.ambientLight, 0.28);
+        const ambientLight = new AmbientLight(
+            userStore.currentThemePalette.globe.ambientLight,
+            DEFAULT_AMBIENT_LIGHT_INTENSITY,
+        );
         scene.add(ambientLight);
         ambientLightRef = ambientLight;
 

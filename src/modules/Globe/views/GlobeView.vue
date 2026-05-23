@@ -15,6 +15,7 @@
 <script setup vapor lang="ts">
 import { ref, useTemplateRef } from 'vue';
 
+import { useGlobeCountryLabels } from '@/modules/Globe/composables/useGlobeCountryLabels';
 import { useGlobeCityLayer } from '@/modules/Globe/composables/useGlobeCityLayer';
 import { useGlobeCityMarkers } from '@/modules/Globe/composables/useGlobeCityMarkers';
 import { useGlobeCurrentLocationMarker } from '@/modules/Globe/composables/useGlobeCurrentLocationMarker';
@@ -33,6 +34,7 @@ const { globeSceneHandle, isEarthReady } = useGlobeScene(canvasRef);
 const memoryModal = useMemoryModal();
 const { cachedCities } = useGlobeCityLayer(globeSceneHandle);
 const { getIntersectedCity } = useGlobeCityMarkers(globeSceneHandle, cachedCities, canvasRef);
+useGlobeCountryLabels(globeSceneHandle);
 useGlobeCurrentLocationMarker(globeSceneHandle);
 
 const lastDetectedCountry = ref<DetectedCountry | null>(null);

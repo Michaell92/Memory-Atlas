@@ -41,6 +41,11 @@ export function useGlobeCamera(
     const spherical = new Spherical(initialRadius, initialPhi, 0);
     const target = new Vector3(0, 0, 0);
 
+    function resolveAutoRotateSpeed(radius: number): number {
+        const farZoomFraction = MathUtils.clamp((radius - minRadius) / (maxRadius - minRadius), 0, 1);
+        return autoRotateSpeed * (0.45 + farZoomFraction * 0.55);
+    }
+
     // Angular velocity (rad/sec) and radial velocity (units/sec).
     const angularVelocity = { theta: 0, phi: 0, radius: 0 };
 
@@ -122,7 +127,7 @@ export function useGlobeCamera(
                 0,
                 1,
             );
-            zoomScaleFactor = 0.045 + 0.955 * nearZoomFraction * nearZoomFraction * nearZoomFraction;
+            zoomScaleFactor = 0.018 + 0.982 * nearZoomFraction * nearZoomFraction * nearZoomFraction;
         } else {
             const farZoomFraction = MathUtils.clamp(
                 (spherical.radius - initialRadius) / (maxRadius - initialRadius),
@@ -135,8 +140,8 @@ export function useGlobeCamera(
         // At the closest zooms, cap raw drag velocity as well. Otherwise a
         // single large pointer delta can still inject too much angular speed
         // before the precision curve has a chance to help.
-        const closeZoomFraction = MathUtils.clamp((spherical.radius - minRadius) / 0.2, 0, 1);
-        const angularVelocityCap = 0.45 + closeZoomFraction * 1.8;
+        const closeZoomFraction = MathUtils.clamp((spherical.radius - minRadius) / 0.45, 0, 1);
+        const angularVelocityCap = 0.25 + closeZoomFraction * 2.0;
 
         // Write to target — the update loop lerps actual velocity toward this,
         // low-pass-filtering out hand jitter without dulling intentional sweeps.
@@ -206,7 +211,7 @@ export function useGlobeCamera(
         }
 
         if (autoRotateEnabled && !isDragging && Math.abs(angularVelocity.theta) < 0.001) {
-            spherical.theta -= autoRotateSpeed * deltaSeconds;
+            spherical.theta -= resolveAutoRotateSpeed(spherical.radius) * deltaSeconds;
         }
 
         spherical.theta += angularVelocity.theta * deltaSeconds;
