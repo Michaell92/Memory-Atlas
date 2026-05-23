@@ -18,10 +18,18 @@
                         <button
                             type="button"
                             class="user-panel__tab"
-                            :class="{ 'user-panel__tab--active': userStore.activePanelSection === 'profile' }"
-                            @click="userStore.openPanel('profile')"
+                            :class="{ 'user-panel__tab--active': userStore.activePanelSection === 'overview' }"
+                            @click="userStore.openPanel('overview')"
                         >
-                            Profile
+                            Overview
+                        </button>
+                        <button
+                            type="button"
+                            class="user-panel__tab"
+                            :class="{ 'user-panel__tab--active': userStore.activePanelSection === 'memories' }"
+                            @click="userStore.openPanel('memories')"
+                        >
+                            Memories
                         </button>
                         <button
                             type="button"
@@ -34,7 +42,8 @@
                     </nav>
 
                     <div class="user-panel__content">
-                        <UserProfileSection v-if="userStore.activePanelSection === 'profile'" />
+                        <UserProfileSection v-if="userStore.activePanelSection === 'overview'" />
+                        <UserMemoriesSection v-else-if="userStore.activePanelSection === 'memories'" />
                         <UserSettingsSection v-else />
                     </div>
                 </aside>
@@ -44,6 +53,7 @@
 </template>
 
 <script setup lang="ts">
+import UserMemoriesSection from '@/modules/User/components/UserMemoriesSection.vue';
 import UserProfileSection from '@/modules/User/components/UserProfileSection.vue';
 import UserSettingsSection from '@/modules/User/components/UserSettingsSection.vue';
 import { useUserStore } from '@/modules/User/stores/userStore';
@@ -118,7 +128,7 @@ const userStore = useUserStore();
 
     &__tabs {
         display: inline-grid;
-        grid-template-columns: repeat(2, minmax(0, max-content));
+        grid-template-columns: repeat(3, minmax(0, max-content));
         gap: 0.5rem;
     }
 

@@ -7,11 +7,8 @@
 
         <Transition name="user-identity-menu-dropdown">
             <div v-if="userStore.isUserMenuOpen && userStore.isAuthenticated" class="user-identity-menu__dropdown">
-                <button type="button" class="user-identity-menu__item" @click="userStore.openPanel('profile')">
+                <button type="button" class="user-identity-menu__item" @click="userStore.openPanel('overview')">
                     Profile
-                </button>
-                <button type="button" class="user-identity-menu__item" @click="userStore.openPanel('settings')">
-                    Settings
                 </button>
                 <button
                     type="button"

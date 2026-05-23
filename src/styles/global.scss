@@ -11,6 +11,18 @@
   --theme-accent-soft: rgba(126, 247, 192, 0.16);
   --theme-text: #eefbff;
   --theme-text-muted: #95b8ca;
+  --scrollbar-size: 0.75rem;
+  --scrollbar-track: linear-gradient(180deg, rgba(4, 11, 22, 0.92), rgba(10, 24, 42, 0.78));
+  --scrollbar-thumb: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 62%, rgba(255, 255, 255, 0.14)),
+    color-mix(in srgb, var(--theme-accent) 22%, #7dd1ff)
+  );
+  --scrollbar-thumb-hover: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 84%, white),
+    color-mix(in srgb, var(--theme-accent) 34%, #8ddcff)
+  );
 }
 
 // ── Reset ─────────────────────────────────────────────────────────────
@@ -34,6 +46,9 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--theme-accent) 72%, rgba(255, 255, 255, 0.12)) rgba(4, 11, 22, 0.4);
 }
 
 body {
@@ -55,6 +70,39 @@ a {
 
 canvas {
   display: block;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--theme-accent) 72%, rgba(255, 255, 255, 0.12)) rgba(4, 11, 22, 0.4);
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999rem;
+  border: 1px solid rgba(126, 247, 192, 0.08);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999rem;
+  border: 2px solid rgba(6, 14, 24, 0.9);
+  box-shadow:
+    inset 0 0 0.6rem rgba(255, 255, 255, 0.12),
+    0 0 1rem color-mix(in srgb, var(--theme-accent) 20%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 // Disable selection — feels more app-like, less document-like

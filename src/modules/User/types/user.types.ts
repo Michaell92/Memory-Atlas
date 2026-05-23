@@ -2,7 +2,7 @@ import type { AchievementState } from '@/modules/Achievements/types/achievement.
 
 export type UserAuthMode = 'login' | 'register';
 
-export type UserPanelSection = 'profile' | 'settings';
+export type UserPanelSection = 'overview' | 'memories' | 'settings';
 
 export interface UserThemePalette {
     id: string;
