@@ -195,7 +195,6 @@ import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import { useUserStore } from '@/modules/User/stores/userStore';
 import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
-import { open } from 'fs';
 
 const memoryStore = useMemoryStore();
 const userStore = useUserStore();

@@ -230,9 +230,7 @@ onBeforeUnmount(() => {
         padding: 0.95rem 1.2rem 1rem;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 1.4rem;
-        background:
-            radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 52%),
-            rgba(4, 11, 22, 0.72);
+        background: radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 52%), rgba(4, 11, 22, 0.72);
         box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.24);
         backdrop-filter: blur(1rem) saturate(1.2);
         color: var(--theme-text);
@@ -315,7 +313,12 @@ onBeforeUnmount(() => {
             width: 0.18rem;
             height: 2.75rem;
             border-radius: 999rem;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 184, 112, 0.92), rgba(255, 255, 255, 0));
+            background: linear-gradient(
+                180deg,
+                rgba(255, 255, 255, 0),
+                rgba(255, 184, 112, 0.92),
+                rgba(255, 255, 255, 0)
+            );
             transform-origin: center center;
             opacity: 0.32;
         }
