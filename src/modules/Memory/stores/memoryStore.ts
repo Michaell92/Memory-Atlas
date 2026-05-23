@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
+import { useAchievementsStore } from '@/modules/Achievements/stores/achievementStore';
 import { memoryLocalGateway } from '@/modules/Memory/services/memoryLocalGateway';
 import type { Memory } from '@/modules/Memory/types/memory.types';
 import { seedMemories } from '@/modules/Memory/utils/memorySeeds';
@@ -23,6 +24,7 @@ function generateMemoryId(): string {
 }
 
 export const useMemoryStore = defineStore('memory', () => {
+    const achievementsStore = useAchievementsStore();
     const userStore = useUserStore();
     const allMemories = ref<Memory[]>(memoryLocalGateway.load());
 
@@ -30,9 +32,23 @@ export const useMemoryStore = defineStore('memory', () => {
         if (!userStore.currentUserId) return [];
         return allMemories.value.filter((memory) => memory.ownerUserId === userStore.currentUserId);
     });
+    const uniqueCountriesCount = computed(
+        () =>
+            new Set(memories.value.map((memory) => normalizeCountryKey(memory.countryCode || memory.countryName))).size,
+    );
+    const uniqueCitiesCount = computed(
+        () =>
+            new Set(memories.value.map((memory) => normalizeCityKey(memory.cityId || memory.cityName)).filter(Boolean))
+                .size,
+    );
+    const unlockedPlacesCount = computed(() => uniqueCountriesCount.value + uniqueCitiesCount.value);
 
     function persistMemories(): void {
         memoryLocalGateway.save(allMemories.value);
+    }
+
+    function syncAchievementsForCurrentUser(options: { announceNewUnlocks?: boolean } = {}): void {
+        achievementsStore.syncProgressFromMemories(memories.value, options);
     }
 
     function matchesCountry(memory: Memory, countryCode: string, countryName?: string): boolean {
@@ -94,6 +110,7 @@ export const useMemoryStore = defineStore('memory', () => {
             ...allMemories.value,
         ];
         persistMemories();
+        syncAchievementsForCurrentUser({ announceNewUnlocks: false });
     }
 
     function addMemory(partial: Omit<Memory, 'id' | 'createdAt' | 'ownerUserId'>): Memory | null {
@@ -107,6 +124,7 @@ export const useMemoryStore = defineStore('memory', () => {
         };
         allMemories.value = [created, ...allMemories.value];
         persistMemories();
+        syncAchievementsForCurrentUser();
         return created;
     }
 
@@ -119,6 +137,7 @@ export const useMemoryStore = defineStore('memory', () => {
         if (!existing) return;
         allMemories.value[index] = { ...existing, ...patch, id: existing.id, ownerUserId: existing.ownerUserId };
         persistMemories();
+        syncAchievementsForCurrentUser();
     }
 
     function removeMemory(memoryId: string): void {
@@ -126,6 +145,7 @@ export const useMemoryStore = defineStore('memory', () => {
             (memory) => !(memory.id === memoryId && memory.ownerUserId === userStore.currentUserId),
         );
         persistMemories();
+        syncAchievementsForCurrentUser();
     }
 
     function addMediaToMemory(memoryId: string, mediaUrl: string): void {
@@ -169,6 +189,9 @@ export const useMemoryStore = defineStore('memory', () => {
     return {
         memories,
         allMemories,
+        uniqueCountriesCount,
+        uniqueCitiesCount,
+        unlockedPlacesCount,
         memoriesByCountry,
         memoriesByCity,
         memoriesByCityScope,

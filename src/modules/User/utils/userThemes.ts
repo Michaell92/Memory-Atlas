@@ -143,6 +143,10 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
     currentLocationCityName: '',
     currentLocationLatitude: null,
     currentLocationLongitude: null,
+    achievementState: {
+        unlockedAchievementIds: [],
+        lastUnlockedAt: null,
+    },
 };
 
 export function resolveUserThemePalette(themeId: string): UserThemePalette {

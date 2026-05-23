@@ -138,6 +138,13 @@
             </div>
         </section>
 
+        <AchievementsPanel
+            :achievement-cards="achievementCards"
+            :unlocked-count="unlockedAchievementCount"
+            :unlocked-places-count="unlockedPlacesCount"
+            :world-conquered-percentage="worldConqueredPercentage"
+        />
+
         <ConfirmDialog
             :is-open="pendingDeleteMemoryId !== null"
             title="Delete this memory?"
@@ -151,6 +158,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 
+import AchievementsPanel from '@/modules/Achievements/components/AchievementsPanel.vue';
+import { useAchievementsStore } from '@/modules/Achievements/stores/achievementStore';
 import MemoryCard from '@/modules/Memory/components/MemoryCard.vue';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import UserOptionSearch from '@/modules/User/components/UserOptionSearch.vue';
@@ -159,6 +168,7 @@ import { useUserStore } from '@/modules/User/stores/userStore';
 import ConfirmDialog from '@/shared/components/ConfirmDialog.vue';
 import type { UserSearchOption } from '@/modules/User/types/user.types';
 
+const achievementsStore = useAchievementsStore();
 const memoryStore = useMemoryStore();
 const userStore = useUserStore();
 
@@ -181,8 +191,12 @@ const pendingDeleteMemoryId = ref<string | null>(null);
 const ratingOptions = [5, 4, 3, 2, 1];
 
 const memories = computed(() => memoryStore.memories);
-const uniqueCountriesCount = computed(() => new Set(memories.value.map((memory) => memory.countryName)).size);
-const uniqueCitiesCount = computed(() => new Set(memories.value.map((memory) => memory.cityName).filter(Boolean)).size);
+const uniqueCountriesCount = computed(() => memoryStore.uniqueCountriesCount);
+const uniqueCitiesCount = computed(() => memoryStore.uniqueCitiesCount);
+const unlockedPlacesCount = computed(() => memoryStore.unlockedPlacesCount);
+const achievementCards = computed(() => achievementsStore.achievementCards);
+const unlockedAchievementCount = computed(() => achievementsStore.unlockedAchievementIds.length);
+const worldConqueredPercentage = computed(() => achievementsStore.achievementMetrics.worldConqueredPercentage);
 const displayedMemories = computed(() => {
     const normalizedQuery = searchQuery.value.trim().toLocaleLowerCase();
     if (!normalizedQuery) return memories.value;

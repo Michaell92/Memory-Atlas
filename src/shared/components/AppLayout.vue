@@ -7,6 +7,7 @@
         <ChatWidget />
         <UserAuthModal />
         <UserPanel />
+        <AchievementUnlockOverlay />
     </div>
 </template>
 
@@ -14,6 +15,8 @@
 import { onMounted, watch } from 'vue';
 import { RouterView } from 'vue-router';
 
+import AchievementUnlockOverlay from '@/modules/Achievements/components/AchievementUnlockOverlay.vue';
+import { useAchievementsStore } from '@/modules/Achievements/stores/achievementStore';
 import ChatWidget from '@/modules/Chat/components/ChatWidget.vue';
 import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import UserAuthModal from '@/modules/User/components/UserAuthModal.vue';
@@ -23,6 +26,7 @@ import { useUserStore } from '@/modules/User/stores/userStore';
 
 const userStore = useUserStore();
 const memoryStore = useMemoryStore();
+const achievementsStore = useAchievementsStore();
 
 function applyThemeVariables(): void {
     const rootElement = document.documentElement;
@@ -42,8 +46,12 @@ function applyThemeVariables(): void {
 watch(
     () => userStore.currentUserId,
     (currentUserId) => {
-        if (!currentUserId) return;
+        if (!currentUserId) {
+            achievementsStore.clearSessionState();
+            return;
+        }
         memoryStore.ensureMemoriesForUser(currentUserId);
+        achievementsStore.syncProgressFromMemories(memoryStore.memories, { announceNewUnlocks: false });
     },
     { immediate: true },
 );

@@ -1,6 +1,10 @@
 <template>
     <div class="globe-view">
         <canvas ref="canvasRef" class="globe-view__canvas" />
+        <GlobeInfoButtons
+            :total-places-visited="totalPlacesVisited"
+            :total-achievements-unlocked="totalAchievementsUnlocked"
+        />
         <div v-if="lastDetectedCountry" class="globe-view__hit-debug">
             <span v-if="lastDetectedCity && lastDetectedCountry"
                 >{{ lastDetectedCity.name }}, {{ lastDetectedCountry.countryName }}</span
@@ -13,8 +17,9 @@
 </template>
 
 <script setup vapor lang="ts">
-import { ref, useTemplateRef } from 'vue';
+import { computed, ref, useTemplateRef } from 'vue';
 
+import GlobeInfoButtons from '@/modules/Globe/components/GlobeInfoButtons.vue';
 import { useGlobeCountryLabels } from '@/modules/Globe/composables/useGlobeCountryLabels';
 import { useGlobeCityLayer } from '@/modules/Globe/composables/useGlobeCityLayer';
 import { useGlobeCityMarkers } from '@/modules/Globe/composables/useGlobeCityMarkers';
@@ -23,12 +28,16 @@ import { useGlobeRaycaster } from '@/modules/Globe/composables/useGlobeRaycaster
 import { useGlobeScene } from '@/modules/Globe/composables/useGlobeScene';
 import { createGeoLookup, type GeoLookupHandle } from '@/modules/Globe/services/GeoLookup';
 import type { DetectedCountry } from '@/modules/Globe/types/globe.types';
+import { useAchievementsStore } from '@/modules/Achievements/stores/achievementStore';
 import MemoryModal from '@/modules/Memory/components/MemoryModal.vue';
 import { useMemoryModal } from '@/modules/Memory/composables/useMemoryModal';
+import { useMemoryStore } from '@/modules/Memory/stores/memoryStore';
 import AppLoader from '@/shared/components/AppLoader.vue';
 import type { City } from '@/shared/types/city.types';
 
 const canvasRef = useTemplateRef<HTMLCanvasElement>('canvasRef');
+const achievementsStore = useAchievementsStore();
+const memoryStore = useMemoryStore();
 
 const { globeSceneHandle, isEarthReady } = useGlobeScene(canvasRef);
 const memoryModal = useMemoryModal();
@@ -39,6 +48,8 @@ useGlobeCurrentLocationMarker(globeSceneHandle);
 
 const lastDetectedCountry = ref<DetectedCountry | null>(null);
 const lastDetectedCity = ref<City | null>(null);
+const totalPlacesVisited = computed(() => memoryStore.unlockedPlacesCount);
+const totalAchievementsUnlocked = computed(() => achievementsStore.unlockedAchievementIds.length);
 
 let geoLookupHandle: GeoLookupHandle | null = null;
 createGeoLookup('110m')

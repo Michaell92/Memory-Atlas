@@ -1,3 +1,5 @@
+import type { AchievementState } from '@/modules/Achievements/types/achievement.types';
+
 export type UserAuthMode = 'login' | 'register';
 
 export type UserPanelSection = 'profile' | 'settings';
@@ -43,6 +45,7 @@ export interface UserSettings {
     currentLocationCityName: string;
     currentLocationLatitude: number | null;
     currentLocationLongitude: number | null;
+    achievementState: AchievementState;
 }
 
 export interface UserCurrentLocation {

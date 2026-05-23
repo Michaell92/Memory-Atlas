@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+
+import type { AchievementState } from '@/modules/Achievements/types/achievement.types';
 import { userLocalGateway } from '@/modules/User/services/userLocalGateway';
 import type {
     LoginUserPayload,
@@ -13,6 +15,32 @@ import type {
 } from '@/modules/User/types/user.types';
 import { DEFAULT_USER_SETTINGS, USER_THEME_PALETTES, resolveUserThemePalette } from '@/modules/User/utils/userThemes';
 
+function normalizeAchievementState(achievementState: Partial<AchievementState> | undefined): AchievementState {
+    return {
+        unlockedAchievementIds: Array.isArray(achievementState?.unlockedAchievementIds)
+            ? achievementState.unlockedAchievementIds.filter(
+                  (achievementId): achievementId is string => typeof achievementId === 'string',
+              )
+            : [],
+        lastUnlockedAt: typeof achievementState?.lastUnlockedAt === 'string' ? achievementState.lastUnlockedAt : null,
+    };
+}
+
+function normalizeUserSettings(settings: Partial<UserSettings> | undefined): UserSettings {
+    return {
+        ...DEFAULT_USER_SETTINGS,
+        ...settings,
+        achievementState: normalizeAchievementState(settings?.achievementState),
+    };
+}
+
+function normalizeUserRecord(userRecord: UserRecord): UserRecord {
+    return {
+        ...userRecord,
+        settings: normalizeUserSettings(userRecord.settings),
+    };
+}
+
 function generateUserId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return `usr-${crypto.randomUUID()}`;
@@ -25,7 +53,7 @@ function normalizeEmail(email: string): string {
 }
 
 function buildDefaultSettings(): UserSettings {
-    return { ...DEFAULT_USER_SETTINGS };
+    return normalizeUserSettings(DEFAULT_USER_SETTINGS);
 }
 
 function resolveDisplayName(userRecord: UserRecord | null): string {
@@ -38,7 +66,7 @@ function resolveDisplayName(userRecord: UserRecord | null): string {
 const persistedUserState = userLocalGateway.load();
 
 export const useUserStore = defineStore('user', () => {
-    const users = ref<UserRecord[]>(persistedUserState.users);
+    const users = ref<UserRecord[]>(persistedUserState.users.map(normalizeUserRecord));
     const currentUserId = ref<string | null>(persistedUserState.currentUserId);
     const isAuthDialogOpen = ref(users.value.length === 0);
     const authDialogMode = ref<UserAuthMode>(users.value.length === 0 ? 'register' : 'login');
@@ -189,12 +217,20 @@ export const useUserStore = defineStore('user', () => {
         users.value = users.value.map((userRecord) => {
             if (userRecord.id !== activeUserId) return userRecord;
 
+            const nextAchievementState = settingsPatch.achievementState
+                ? {
+                      ...userRecord.settings.achievementState,
+                      ...settingsPatch.achievementState,
+                  }
+                : userRecord.settings.achievementState;
+
             return {
                 ...userRecord,
-                settings: {
+                settings: normalizeUserSettings({
                     ...userRecord.settings,
                     ...settingsPatch,
-                },
+                    achievementState: nextAchievementState,
+                }),
             };
         });
 
