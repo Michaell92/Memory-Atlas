@@ -51,16 +51,18 @@ import type { CountryMeshesHandle, CountryMeshesOptions } from '@/modules/Globe/
  */
 
 const DEFAULT_PALETTE = [
-    '#f4d9a1', // sand
-    '#f0c2a0', // peach
-    '#e8b4a3', // dusty rose
-    '#d8c7e8', // lavender
-    '#bdd4f0', // sky
-    '#a6d8c7', // mint
-    '#d0e6b3', // pistachio
-    '#f2e6a8', // butter
-    '#ecd0b8', // apricot
-    '#c9d8b6', // sage
+    '#8a3828', // brick red
+    '#9c5530', // terracotta
+    '#8a7020', // amber
+    '#5a7028', // olive
+    '#2a6840', // forest green
+    '#1e7060', // teal
+    '#2a5888', // steel blue
+    '#3848a0', // slate blue
+    '#4a3888', // dusty indigo
+    '#6a3870', // dusty purple
+    '#8a3858', // rose
+    '#7a4060', // dusty mauve
 ];
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -673,7 +675,7 @@ export async function createCountryMeshes(options: CountryMeshesOptions = {}): P
             // out the day side.
             emissive: fillColor,
             emissiveIntensity: 0.35,
-            roughness: 0.9,
+            roughness: 0.72,
             metalness: 0.0,
             // polygonOffset shifts fragments toward the camera in clip space,
             // accounting for triangle slope. This is the correct fix for z-fighting

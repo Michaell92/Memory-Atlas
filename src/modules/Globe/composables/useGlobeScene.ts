@@ -38,8 +38,8 @@ import type {
     ShootingStarsHandle,
 } from '@/modules/Globe/types/globe.types';
 
-const DEFAULT_SUN_LIGHT_INTENSITY = 3.36;
-const DEFAULT_AMBIENT_LIGHT_INTENSITY = 0.224;
+const DEFAULT_SUN_LIGHT_INTENSITY = 4.5;
+const DEFAULT_AMBIENT_LIGHT_INTENSITY = 0.4;
 
 /**
  * Computes the normalised world-space direction from the globe centre toward
@@ -120,7 +120,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         atmosphereMaterialRef.uniforms['uNightColor']!.value.set(themePalette.globe.atmosphereNightColor);
 
         if (rendererRef) {
-            rendererRef.toneMappingExposure = 1.1 + (brightness - 1) * 0.18;
+            rendererRef.toneMappingExposure = 0.9 + (brightness - 1) * 0.15;
         }
     }
 
@@ -217,7 +217,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.outputColorSpace = SRGBColorSpace;
         renderer.toneMapping = ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.1;
+        renderer.toneMappingExposure = 0.9;
         rendererRef = renderer;
 
         // ── Scene & camera ────────────────────────────────────────────────
@@ -234,7 +234,7 @@ export function useGlobeScene(canvasRef: Readonly<Ref<HTMLCanvasElement | null>>
             color: new Color(userStore.currentThemePalette.globe.globeColor),
             emissive: new Color(userStore.currentThemePalette.globe.globeEmissive),
             emissiveIntensity: 0.45,
-            roughness: 0.75,
+            roughness: 0.58,
             metalness: 0.0,
         });
         globeMaterialRef = globeMaterial;
